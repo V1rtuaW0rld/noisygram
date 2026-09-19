@@ -3,20 +3,40 @@
     docker compose exec capture python -m app.tools.compteur --event 541
     docker compose exec capture python -m app.tools.compteur /data/debug/x.wav
 
-⚠️ **Le critère n'est PAS encore calibré.** On sait compter les pics d'une
-enveloppe ; on ne sait pas encore dire lesquels sont des aboiements. Cet outil
-existe pour ça : il affiche chaque candidat avec de quoi juger, et REFUSE de
-trancher à ta place. Le compte qu'il rend est une proposition à vérifier à
-l'oreille, pas un résultat.
+═══════════════════════════════════════════════════════════════════════════
+LE POINT QUI A TOUT CHANGÉ : CE N'EST PAS L'AMPLITUDE, C'EST LA FRÉQUENCE.
 
-Pourquoi ce n'est pas dans la base : une colonne remplie par un critère non
-calibré donne des chiffres qui ont l'air d'autorité. Tant qu'on ne sait pas
-compter juste, on ne stocke rien.
+Pendant longtemps cet outil comptait les pics de l'enveloppe **pleine bande**.
+C'était faux, et de loin : sur 480 il trouvait 24 pics pour 5 aboiements, sur
+507 41 pour 5. Il comptait le vent.
 
-Le raisonnement physique, lui, est solide et vient de l'utilisateur : un chien
-qui aboie au même endroit, à la même distance, produit des aboiements de MÊME
-AMPLITUDE. Un pic franchement plus fort que les autres est donc suspect — ce
-n'est pas la même source. C'est ce que fait `ecart` ci-dessous.
+Le vent sous 1 kHz est **quasi inaudible** mais produit des excursions énormes
+sur la membrane du micro : en amplitude, il écrase tout. L'oreille, elle, ne
+l'entend pas — d'où l'impression trompeuse que « l'aboiement gagne toujours ».
+
+C'est en regardant les SPECTROGRAMMES qu'on l'a vu :
+  · le vent forme une nappe horizontale sous ~800 Hz ;
+  · un aboiement est une colonne verticale large, qui monte au-dessus de 1 kHz ;
+  · un oiseau est un trait fin et ondulant, dans les aigus.
+
+En prenant l'enveloppe de la seule bande **1000–8000 Hz**, les comptes tombent :
+    480 : 24 -> 5 (vérité 5)      507 : 41 -> 6 (vérité 5)
+    483 : 15 -> 4 (vérité 4)      541 :  4 -> 4 (vérité 4)
+Soit 7 fichiers exacts sur 9, contre 4 avant — et les deux écarts restants sont
+de +1 et +4, là où c'étaient des facteurs 3 à 7.
+
+CE QUI RESTE FAUX, ET QU'IL FAUT SAVOIR
+- 507 : 6 au lieu de 5, 546 : 6 au lieu de 2. Sur 546 l'utilisateur signale des
+  oiseaux ; ils vivent aussi au-dessus de 1 kHz, donc la bande ne les écarte pas.
+- J'ai tenté de les séparer par la PLATITUDE spectrale (bruit large bande contre
+  trait pur). **Ça ne marche pas** : les quatre vrais aboiements de 483 ont la
+  platitude la plus basse du fichier. Mesure non fiable, piste non concluante.
+- Le seuil à 4× le fond local et le réfractaire de 120 ms ne sont PAS calibrés
+  finement : ils n'ont jamais été ajustés que sur neuf fichiers.
+
+⚠️ Le compte rendu est une PROPOSITION à vérifier à l'oreille, pas un résultat.
+Et il n'est pas écrit en base : une colonne remplie par un critère non calibré
+donne des chiffres qui ont l'air d'autorité.
 """
 
 from __future__ import annotations
@@ -29,49 +49,66 @@ from pathlib import Path
 
 import numpy as np
 
-# --- Réglages, tous discutables -------------------------------------------
-# Les valeurs par défaut sont un POINT DE DÉPART, pas une vérité mesurée.
-FEN_MS = 10.0  # largeur de trame de l'enveloppe
-HOP_MS = 5.0  # pas : 5 ms de résolution, contre 480 ms pour le score YAMNet
+# --- Réglages --------------------------------------------------------------
+# La bande est le seul réglage qui a été VÉRIFIÉ. Les autres sont des points de
+# départ, ajustés sur neuf fichiers seulement.
+BANDE_BASSE = 1000.0  # sous cette fréquence, c'est du vent
+BANDE_HAUTE = 8000.0  # au-delà, il n'y a plus rien d'exploitable
+FEN_MS = 20.0  # largeur de trame de l'enveloppe
+HOP_MS = 10.0  # pas : 10 ms de résolution, contre 487 ms pour le score YAMNet
 FACTEUR_FOND = 4.0  # un pic doit valoir ça de fois le fond local
 REFRACT_MS = 120.0  # deux aboiements ne peuvent pas être plus proches
-ECART_MIN = 0.40  # niveau mini d'un pic, en multiple de la médiane des pics
-ECART_MAX = 2.00  # au-delà, la source a changé : ce n'est plus le même chien
 
 
 def lire_wav(path: Path) -> tuple[np.ndarray, int]:
     with wave.open(str(path), "rb") as w:
         n, sr, ch = w.getnframes(), w.getframerate(), w.getnchannels()
         raw = w.readframes(n)
-    # Le chemin d'analyse lit en float32 ; on reste cohérent avec lui.
     x = np.frombuffer(raw, dtype=np.int16).astype(np.float64) / 32768.0
     if ch > 1:
         x = x.reshape(-1, ch).mean(axis=1)
     return x, sr
 
 
-def enveloppe(x: np.ndarray, sr: int) -> tuple[np.ndarray, float]:
-    """RMS par trame, lissée. Le lissage évite qu'une trame tombe dans le
-    creux entre deux harmoniques d'un même aboiement et le coupe en deux."""
+def enveloppe_bande(
+    x: np.ndarray,
+    sr: int,
+    fmin: float = BANDE_BASSE,
+    fmax: float = BANDE_HAUTE,
+) -> tuple[np.ndarray, float]:
+    """RMS par trame, DANS UNE BANDE de fréquences.
+
+    On passe par une FFT glissante plutôt que par un filtre : un filtre à
+    réponse impulsionnelle longue (Butterworth) **invente des pics** par
+    ringing, ce qui est précisément ce qu'on cherche à ne pas faire ici.
+    """
     f, h = int(FEN_MS * sr / 1000), int(HOP_MS * sr / 1000)
+    win = np.hanning(f)
+    fr = np.fft.rfftfreq(f, 1 / sr)
+    bande = (fr >= fmin) & (fr < fmax)
     n = 1 + max(0, (len(x) - f) // h)
-    e = np.array([np.sqrt(np.mean(x[i * h : i * h + f] ** 2)) for i in range(n)])
+    e = np.empty(n)
+    for k in range(n):
+        s = np.abs(np.fft.rfft(x[k * h : k * h + f] * win))
+        e[k] = np.sqrt((s[bande] ** 2).sum())
     return np.convolve(e, np.ones(3) / 3, mode="same"), h / sr
 
 
 def fond_local(e: np.ndarray, dt: float, fen_s: float = 1.5) -> np.ndarray:
-    """Médiane glissante : le bruit de fond bouge (le vent monte et descend),
-    un fond global ferait passer une bourrasque pour une salve."""
+    """Médiane glissante : le fond bouge, un fond global ferait passer une
+    bourrasque pour une salve."""
     demi = max(1, int(fen_s / 2 / dt))
-    return np.array(
-        [np.median(e[max(0, i - demi) : i + demi + 1]) for i in range(len(e))]
-    )
+    return np.array([np.median(e[max(0, i - demi) : i + demi + 1]) for i in range(len(e))])
 
 
 def candidats(e: np.ndarray, dt: float, fond: np.ndarray) -> list[int]:
     seuil = FACTEUR_FOND * fond
     refr = max(1, int(REFRACT_MS / 1000 / dt))
-    pics = [i for i in range(1, len(e) - 1) if e[i] >= e[i - 1] and e[i] > e[i + 1] and e[i] > seuil[i]]
+    pics = [
+        i
+        for i in range(1, len(e) - 1)
+        if e[i] >= e[i - 1] and e[i] > e[i + 1] and e[i] > seuil[i]
+    ]
     gardes: list[int] = []
     for i in pics:
         if not gardes or i - gardes[-1] >= refr:
@@ -82,8 +119,7 @@ def candidats(e: np.ndarray, dt: float, fond: np.ndarray) -> list[int]:
 
 
 def largeur_ms(e: np.ndarray, i: int, dt: float) -> float:
-    """Durée au-dessus de la moitié du pic. Un aboiement fait 80 à 400 ms ;
-    une bourrasque dure bien plus, un clic bien moins."""
+    """Durée au-dessus de la moitié du pic. Information de forme, pas critère."""
     demi = e[i] / 2
     a = i
     while a > 0 and e[a] > demi:
@@ -94,83 +130,39 @@ def largeur_ms(e: np.ndarray, i: int, dt: float) -> float:
     return (b - a) * dt * 1000
 
 
-def timbre(x: np.ndarray, sr: int, t: float, demi_ms: float = 150) -> tuple[float, float]:
-    """(centroïde, part d'énergie au-dessus de 2 kHz).
-
-    Un sifflement d'oiseau vit entre 2 et 8 kHz : c'est ce qui doit le
-    distinguer d'un aboiement, qui est grave et large bande. ⚠️ Sur les deux
-    fichiers de référence testés, cette mesure n'a RIEN séparé (1 à 6 %
-    partout) — elle est là pour être contredite, pas pour être crue.
-    """
-    i = int(t * sr)
-    a = max(0, i - int(demi_ms * sr / 1000))
-    b = min(len(x), i + int(demi_ms * sr / 1000))
-    seg = x[a:b]
-    if len(seg) < 256:
-        return 0.0, 0.0
-    s = np.abs(np.fft.rfft(seg * np.hanning(len(seg)))) ** 2
-    fr = np.fft.rfftfreq(len(seg), 1 / sr)
-    total = s.sum()
-    if total <= 0:
-        return 0.0, 0.0
-    return float((fr * s).sum() / total), float(s[fr > 2000].sum() / total)
-
-
 def analyse(path: Path, nom: str) -> int:
     x, sr = lire_wav(path)
-    duree = len(x) / sr
-    e, dt = enveloppe(x, sr)
+    e, dt = enveloppe_bande(x, sr)
     fond = fond_local(e, dt)
     idx = candidats(e, dt, fond)
 
-    print(f"\n■ {nom} — {duree:.2f} s @ {sr} Hz")
-    print(f"  fond médian {np.median(fond):.5f} | seuil {FACTEUR_FOND:g}× le fond local")
+    print(f"\n■ {nom} — {len(x) / sr:.2f} s @ {sr} Hz")
+    print(
+        f"  bande {BANDE_BASSE:.0f}-{BANDE_HAUTE:.0f} Hz | seuil {FACTEUR_FOND:g}× "
+        f"le fond local | réfractaire {REFRACT_MS:.0f} ms"
+    )
     if not idx:
         print("  aucun candidat")
         return 0
 
-    niveaux = np.array([e[i] for i in idx])
-    mediane = float(np.median(niveaux))
+    print(f"\n  {'n°':>3s} {'t':>7s} {'niveau':>9s} {'largeur':>8s}")
+    for k, i in enumerate(idx, 1):
+        print(f"  {k:3d} {i * dt:6.2f}s {e[i]:9.5f} {largeur_ms(e, i, dt):7.0f}ms")
 
-    print(f"\n  {'t':>7s} {'niveau':>8s} {'écart':>6s} {'largeur':>8s} {'>2kHz':>6s}  verdict")
-    retenus = 0
-    for i in idx:
-        ecart = e[i] / mediane
-        largeur = largeur_ms(e, i, dt)
-        _, aigu = timbre(x, sr, i * dt)
-        motifs = []
-        if ecart > ECART_MAX:
-            motifs.append(f"trop fort ({ecart:.1f}× la médiane)")
-        if ecart < ECART_MIN:
-            motifs.append(f"trop faible ({ecart:.2f}×)")
-        if aigu > 0.25:
-            motifs.append(f"aigu ({100 * aigu:.0f} %) — sifflement ?")
-        if motifs:
-            verdict = "REJETÉ : " + " ; ".join(motifs)
-        else:
-            verdict = "retenu"
-            retenus += 1
-        print(
-            f"  {i * dt:6.2f}s {e[i]:8.4f} {ecart:6.2f} {largeur:7.0f}ms "
-            f"{100 * aigu:5.0f}%  {verdict}"
-        )
-
-    print(f"\n  → {retenus} unité(s) retenue(s) sur {len(idx)} candidat(s)")
-    print("  ⚠️ À VÉRIFIER À L'OREILLE. Le critère n'est pas calibré.")
-    return retenus
+    print(f"\n  → {len(idx)} unité(s) proposée(s)")
+    print("  ⚠️ À VÉRIFIER À L'OREILLE. Le critère n'est pas calibré finement.")
+    print("     Connu faux sur 546 (oiseaux) et approché sur 507 (+1).")
+    return len(idx)
 
 
 def chemin_depuis_event(event_id: int) -> tuple[Path, str]:
-    """Retrouve le WAV d'un événement. Le nom est en base, le fichier sur disque."""
     from .. import db
     from ..config import settings
 
     async def _chercher() -> str | None:
         await db.connect(settings.database_url)
         try:
-            return await db.fetchval(
-                "SELECT wav_name FROM events WHERE id = $1", event_id
-            )
+            return await db.fetchval("SELECT wav_name FROM events WHERE id = $1", event_id)
         finally:
             await db.disconnect()
 
