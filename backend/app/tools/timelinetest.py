@@ -54,7 +54,14 @@ def test_pur() -> None:
         ],
         dtype=np.float32,
     )
-    r = build_timeline(m, noms, n_samples=5 * 15600, min_score=0.3, noisy_threshold=0.35)
+    # Le groupe est passé EXPLICITEMENT : cette fixture teste le MÉCANISME
+    # « une fenêtre dont l'argmax est Speech mais dont la classe surveillée
+    # marque 0,40 reste visible », pas la cible du projet. S'appuyer sur le
+    # défaut ferait changer le sens du test le jour où le défaut change.
+    r = build_timeline(
+        m, noms, n_samples=5 * 15600, min_score=0.3, noisy_threshold=0.35,
+        noisy_classes=["Dog"],
+    )
 
     check("deux segments après fusion", len(r["timeline"]) == 2,
           str([s["sound"] for s in r["timeline"]]))
@@ -127,6 +134,9 @@ def test_reel(chemin: str) -> None:
         m, noms, n_samples=x16.size,
         min_score=settings.analyze_timeline_min_score,
         noisy_threshold=settings.noisy_threshold,
+        # Le groupe du classifieur EN SERVICE : la timeline doit expliquer les
+        # scores qui viennent d'être calculés, pas ceux d'un autre groupe.
+        noisy_classes=list(clf.classes_cibles),
     )
 
     duree = x16.size / 16000

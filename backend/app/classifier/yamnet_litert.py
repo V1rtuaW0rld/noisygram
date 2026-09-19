@@ -36,10 +36,16 @@ TOP_K = 5
 
 # Le groupe surveillé : les classes YAMNet dont le MAX fait le score principal.
 #
-# ⚠️ Ces chaînes sont des libellés du class map du modèle, PAS du vocabulaire
-# du projet. Elles ne se traduisent pas et ne se renomment pas : `index()`
-# ci-dessous les résout par nom, et une seule lettre changée fait refuser le
-# chargement du modèle.
+# ⚠️ CE N'EST QU'UNE GRAINE, PAS UNE EXIGENCE. Le groupe réellement surveillé
+# vient du PROJET, en base (table `projet_config`, voir app/projet.py) : cette
+# constante ne sert qu'à une installation qui n'a encore rien configuré, et
+# c'est ce que la modale projet remplacera. Aucune classe canine n'est requise
+# pour démarrer — seul compte que le groupe configuré résolve au moins une
+# classe du modèle.
+#
+# Ces chaînes sont des libellés du class map du modèle, PAS du vocabulaire du
+# projet. Elles ne se traduisent pas et ne se renomment pas : `load()` les
+# résout par nom, et une seule lettre changée les rend introuvables.
 #
 # « Whimper (dog) » porte la précision entre parenthèses dans le class map :
 # c'est le libellé exact, et il évite d'attraper un « Whimper » humain s'il

@@ -43,6 +43,7 @@ class RemoteHttpBackend(ClassifierBackend):
         timeout_s: float = REMOTE_TIMEOUT_S,
         bark_label: str = "Bark",
         noisy_label: str = "Dog",
+        classes_cibles: list[str] | None = None,
     ) -> None:
         # noisy_label ne sert que de repli si le service distant n'expose aucune
         # des classes du groupe surveillé.
@@ -51,6 +52,10 @@ class RemoteHttpBackend(ClassifierBackend):
         self.timeout_s = timeout_s
         self.bark_label = bark_label
         self.noisy_label = noisy_label
+        # Le groupe du PROJET, comme pour le backend local. Sans ça, ce backend
+        # noterait sur le groupe canin pendant que le reste de l'appli en
+        # surveille un autre — et changer de backend changerait la détection.
+        self.classes_cibles: tuple[str, ...] = tuple(classes_cibles or NOISY_CLASS_NAMES)
         self._ready = False
 
     def load(self) -> None:
@@ -106,7 +111,7 @@ class RemoteHttpBackend(ClassifierBackend):
         # critère que le backend local, le max du groupe surveillé. Un modèle
         # distant qui ne les expose pas toutes doit produire le même verdict
         # que YAMNet, sinon changer de backend changerait le seuil.
-        groupe = [scores[n] for n in NOISY_CLASS_NAMES if n in scores]
+        groupe = [scores[n] for n in self.classes_cibles if n in scores]
         noisy = max(groupe) if groupe else scores.get(self.noisy_label, 0.0)
         bark = scores.get(self.bark_label)
 

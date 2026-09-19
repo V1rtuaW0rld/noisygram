@@ -40,6 +40,7 @@ def build_classifier(
             url=settings.remote_classifier_url,
             threshold=settings.noisy_threshold,
             timeout_s=settings.remote_classifier_timeout_s,
+            classes_cibles=classes_cibles,
         )
 
     raise ValueError(

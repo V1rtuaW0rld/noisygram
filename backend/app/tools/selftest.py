@@ -32,8 +32,6 @@ from ..audio.wav import read_wav_float32
 from .. import projet
 from ..classifier.yamnet_litert import (
     NOISY_CLASS_NAMES,
-    EXPECTED_BARK_INDEX,
-    EXPECTED_NOISY_INDEX,
     HOP_SAMPLES,
     WINDOW_SAMPLES,
     YamnetLitertBackend,
@@ -284,6 +282,16 @@ def main(argv: list[str] | None = None) -> int:
             + ("" if got == want else f" ATTENDU {want[:16]}…"),
         )
 
+    # Le projet : le groupe surveillé vient de la base, comme pour le service.
+    # On le lit AVANT le class map, parce que c'est lui qui dit quelles classes
+    # doivent exister — et non l'inverse.
+    classes_cibles, ligne_projet = asyncio.run(projet.lire_hors_service())
+    if ligne_projet:
+        print(
+            f"\n■ Projet « {ligne_projet.get('nom') or '(sans nom)'} » "
+            f"→ {classes_cibles}"
+        )
+
     # -- 2. Class map ------------------------------------------------------
     print("\n■ Class map (§3.2 — l'index 0 est Speech, PAS Animal)")
     try:
@@ -293,31 +301,29 @@ def main(argv: list[str] | None = None) -> int:
             len(names) == EXPECTED_CLASSES,
             f"{len(names)} (attendu {EXPECTED_CLASSES})",
         )
+        # Échantillon d'IDENTITÉ du modèle : quelques classes réparties dans la
+        # table, pour vérifier que c'est bien ce class map-là. Volontairement
+        # sans classe canine — ce test ne doit pas présupposer la cible.
         for idx, expected in (
             (0, "Speech"),
             (67, "Animal"),
             (68, "Domestic animals, pets"),
-            (69, "Dog"),
-            (70, "Bark"),
-            (71, "Yip"),
         ):
             check(
                 f"index {idx} = {expected!r}",
                 idx < len(names) and names[idx] == expected,
                 f"lu : {names[idx]!r}" if idx < len(names) else "hors bornes",
             )
+        # Le GROUPE DU PROJET doit résoudre : c'est la SEULE condition que le
+        # service exige pour démarrer. Vérifier ici la présence du groupe canin
+        # ferait échouer ce test sur un projet « tronçonneuse » — alors que le
+        # service, lui, démarrerait très bien.
+        groupe = classes_cibles or list(NOISY_CLASS_NAMES)
+        manquantes = [n for n in groupe if n not in names]
         check(
-            "Bark/Dog résolus par NOM",
-            names.index("Bark") == EXPECTED_BARK_INDEX
-            and names.index("Dog") == EXPECTED_NOISY_INDEX,
-            f"Bark={names.index('Bark')} Dog={names.index('Dog')} "
-            f"(référence {EXPECTED_BARK_INDEX}/{EXPECTED_NOISY_INDEX})",
-        )
-        missing = [n for n in NOISY_CLASS_NAMES if n not in names]
-        check(
-            "les 7 classes du groupe surveillé sont présentes",
-            not missing,
-            f"absentes : {missing}" if missing else ", ".join(NOISY_CLASS_NAMES),
+            "toutes les classes du groupe surveillé existent dans le class map",
+            not manquantes,
+            f"absentes : {manquantes}" if manquantes else ", ".join(groupe),
         )
     except Exception as exc:  # noqa: BLE001 — on veut le rapport, pas la stack
         check("lecture du class map", False, repr(exc))
@@ -368,16 +374,6 @@ def main(argv: list[str] | None = None) -> int:
 
     # -- 5. Chargement du modèle ------------------------------------------
     print("\n■ Chargement de YAMNet")
-    # Le groupe surveillé vient du PROJET, comme pour le service. Sans cette
-    # lecture, cet outil mesurerait le groupe PAR DÉFAUT pendant que la capture
-    # en surveille un autre : il afficherait des scores qui ne correspondent à
-    # rien de ce qui tourne.
-    classes_cibles, ligne_projet = asyncio.run(projet.lire_hors_service())
-    if ligne_projet:
-        print(
-            f"        projet « {ligne_projet.get('nom') or '(sans nom)'} » "
-            f"→ {classes_cibles}"
-        )
     backend = YamnetLitertBackend(
         model_path=settings.model_path,
         class_map_path=settings.class_map_path,
