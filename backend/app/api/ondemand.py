@@ -35,7 +35,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Request
 
-from ..analysis.timeline import build_timeline, dog_scores
+from ..analysis.timeline import build_timeline, noisy_scores
 from ..audio.pcm import peak as niveau_pic
 from ..audio.resample import TARGET_SR, resample_to_16k
 from ..audio.wav import read_wav_float32
@@ -44,7 +44,7 @@ from ..classifier.yamnet_litert import HOP_SAMPLES, load_class_names
 from ..config import settings
 from ..schemas import OndemandEntry, OndemandList, OndemandSample
 from ..storage import media, ondemand
-from ..ws.stream import compter_aboiements
+from ..ws.stream import compter_evenements
 from .. import qc_client
 
 log = logging.getLogger(__name__)
@@ -120,7 +120,7 @@ def _entree(idx: ondemand.AnalysisIndex, chemin: Path, digest: str) -> tuple[Ond
     if brut is None:
         return None, False
     entree = OndemandEntry.model_validate(brut)
-    perimee = (entree.threshold is not None and entree.threshold != settings.dog_threshold)
+    perimee = (entree.threshold is not None and entree.threshold != settings.noisy_threshold)
     return entree, perimee
 
 
@@ -159,7 +159,7 @@ async def liste() -> OndemandList:
         # distincts, et interroger le mauvais volume donnerait un chiffre
         # rassurant sur un disque qui n'est pas celui qui se remplit.
         disk_free_bytes=media.free_bytes(racine),
-        threshold=settings.dog_threshold,
+        threshold=settings.noisy_threshold,
     )
 
 
@@ -238,7 +238,7 @@ async def analyser(name: str, request: Request, relancer: bool = False) -> dict:
         raise HTTPException(status_code=400, detail="fichier sans échantillon")
 
     x16 = resample_to_16k(x, sr)
-    seuil = settings.dog_threshold
+    seuil = settings.noisy_threshold
     maintenant = datetime.now(timezone.utc)
 
     if settings.analyze_backend == "remote":
@@ -276,17 +276,17 @@ async def analyser(name: str, request: Request, relancer: bool = False) -> dict:
     # UN SEUL passage, et il donne les deux. `score_matrix` rend la matrice
     # (fenêtres × 521) sur EXACTEMENT la grille du chemin direct — `frame_signal`
     # est le même fenêtrage que `WindowScorer`. L'ancienne version faisait un
-    # second balayage pour les scores canins : deux passages sous le même verrou,
+    # second balayage pour les scores principaux : deux passages sous le même verrou,
     # pour la même information.
     t0 = time.monotonic()
     matrix = await asyncio.to_thread(classifier.score_matrix, x16)
-    canins = dog_scores(matrix, noms)
+    scores_fenetres = noisy_scores(matrix, noms)
     timeline = build_timeline(
         matrix,
         noms,
         n_samples=x16.size,
         min_score=settings.analyze_timeline_min_score,
-        dog_threshold=seuil,
+        noisy_threshold=seuil,
     )
     duree_calcul = time.monotonic() - t0
 
@@ -310,8 +310,8 @@ async def analyser(name: str, request: Request, relancer: bool = False) -> dict:
     timeline["peak"] = round(pic, 6)
     timeline["peak_dbfs"] = pic_dbfs
 
-    offsets = [i * HOP_SAMPLES for i in range(len(canins))]
-    retenues = int((canins >= seuil).sum())
+    offsets = [i * HOP_SAMPLES for i in range(len(scores_fenetres))]
+    retenues = int((scores_fenetres >= seuil).sum())
     info = classifier.describe()
 
     entree = dict(ancienne)  # on FUSIONNE, on n'écrase pas
@@ -325,16 +325,16 @@ async def analyser(name: str, request: Request, relancer: bool = False) -> dict:
             "threshold": seuil,
             "backend": info.get("backend"),
             "model": info.get("model"),
-            "dog_score": round(float(canins.max()), 6) if canins.size else None,
-            "mean_dog_score": round(float(canins.mean()), 6) if canins.size else None,
-            "windows": int(canins.size),
+            "noisy_score": round(float(scores_fenetres.max()), 6) if scores_fenetres.size else None,
+            "mean_noisy_score": round(float(scores_fenetres.mean()), 6) if scores_fenetres.size else None,
+            "windows": int(scores_fenetres.size),
             "windows_retenues": retenues,
-            "bark_count": compter_aboiements(list(canins), offsets, seuil, TARGET_SR),
+            "noisy_count": compter_evenements(list(scores_fenetres), offsets, seuil, TARGET_SR),
             "peak": round(pic, 6),
             "peak_dbfs": pic_dbfs,
             "scores": [
-                {"offset_ms": round(o / TARGET_SR * 1000), "dog": round(float(s), 6)}
-                for o, s in zip(offsets, canins)
+                {"offset_ms": round(o / TARGET_SR * 1000), "noisy": round(float(s), 6)}
+                for o, s in zip(offsets, scores_fenetres)
             ],
             "timeline": timeline,
             "timeline_source": "local",
@@ -357,7 +357,7 @@ async def analyser(name: str, request: Request, relancer: bool = False) -> dict:
         chemin.name,
         entree["windows"],
         retenues,
-        entree["dog_score"] or 0.0,
+        entree["noisy_score"] or 0.0,
         len(timeline["timeline"]),
         duree_calcul * 1000,
         seuil,
@@ -396,7 +396,7 @@ def _relais_vers_capture(nom: str, relancer: bool) -> dict:
         url,
         data=b"",
         method="POST",
-        headers={"Accept": "application/json", "User-Agent": "aboigramme/admin"},
+        headers={"Accept": "application/json", "User-Agent": "noisygram/admin"},
     )
     try:
         with urllib.request.urlopen(req, timeout=settings.analyze_remote_timeout_s) as rep:
@@ -418,7 +418,7 @@ async def _timeline_distante(chemin: Path) -> dict:
     Le service rend sa timeline dans SA forme ; on la normalise ici pour que la
     modale n'ait qu'une seule forme à connaître. Un `interval` comme
     « 7.2s à 8.16s » redevient des nombres — sans quoi le surlignage des
-    fenêtres canines et le tri devraient re-parser des chaînes côté navigateur.
+    fenêtres retenues et le tri devraient re-parser des chaînes côté navigateur.
     """
     if not settings.analyze_remote_url:
         raise HTTPException(
@@ -456,9 +456,9 @@ async def _timeline_distante(chemin: Path) -> dict:
         "frames": None,
         "source": "remote",
         "timeline": timeline,
-        "dog_frames": [],
-        "dog_max": None,
-        "dog_best": None,
+        "noisy_frames": [],
+        "noisy_max": None,
+        "noisy_best": None,
     }
 
 

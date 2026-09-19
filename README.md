@@ -1,6 +1,6 @@
-# Aboigramme
+# Noisygram
 
-Détection et historisation d'aboiements. Un vieux PC Windows en extérieur capte
+Détection et historisation d'événements sonores. Un vieux PC Windows en extérieur capte
 le son ; ce service qualifie les extraits et alimente un dashboard.
 
 Le client fait le **pré-tri** (détection RMS, très peu de CPU) et n'envoie que
@@ -83,12 +83,12 @@ risque pour zéro bénéfice.
 
 ## Le seuil de détection
 
-`DOG_THRESHOLD` vaut **0,35 par défaut, et c'est un point de départ, pas une
+`NOISY_THRESHOLD` vaut **0,35 par défaut, et c'est un point de départ, pas une
 vérité**. Les scores YAMNet sont des sigmoïdes entraînées sur AudioSet, **pas
 des probabilités calibrées** — un « 0,87 » n'est pas « 87 % de chances d'un
-aboiement » au sens fréquentiste.
+événement » au sens fréquentiste.
 
-Le score seuillé est le **maximum sur le groupe canin** (`Dog`, `Bark`, `Yip`,
+Le score seuillé est le **maximum sur le groupe surveillé** (`Dog`, `Bark`, `Yip`,
 `Howl`, `Bow-wow`, `Growling`, `Whimper`), et non la seule classe `Bark`. Sur
 les enregistrements réels du terrain, `Bark` s'effondre à 0,26 là où `Dog` monte
 à 0,59 sur les **mêmes** segments : c'est le moins bon discriminateur du groupe.
@@ -100,11 +100,11 @@ deux critères sur des données accumulées.
 Le dossier `samples/` sert à ça — voir `samples/README.md` pour la convention.
 
 ```bash
-# le côté POSITIF : de vrais aboiements
+# le côté POSITIF : de vrais événements
 docker compose run --rm --no-deps -v $PWD/samples/reference:/ref:ro \
-  capture python -m app.tools.selftest /ref/aboiements.wav --segment 3
+  capture python -m app.tools.selftest /ref/événements.wav --segment 3
 
-# le côté NÉGATIF : le fond sonore du terrain, SANS chien
+# le côté NÉGATIF : le fond sonore du terrain, SANS source
 docker compose run --rm --no-deps -v $PWD/samples/negative:/neg:ro \
   capture python -m app.tools.selftest /neg/ambiance.wav --segment 3
 ```
@@ -114,7 +114,7 @@ docker compose run --rm --no-deps -v $PWD/samples/negative:/neg:ro \
 
 Le second doit sortir **0 segment accepté**. C'est ce chiffre-là, et pas le
 premier, qui fixe le seuil : on le place juste au-dessus du score maximal du
-bruit de fond, en gardant de la marge sous le score minimal des aboiements.
+bruit de fond, en gardant de la marge sous le score minimal des événements.
 
 Le format attendu est du **WAV PCM 16 bits**, n'importe quelle fréquence. Le
 serveur n'embarque **aucun décodeur MP3** — c'est délibéré, ça évite 350 Mo de
@@ -156,7 +156,7 @@ La solution propre, si tu as déjà un Caddy : [`docs/CADDY.md`](docs/CADDY.md).
 
 Le poste n'envoie rien tant qu'il n'a pas déclenché : c'est ce qui rend le
 système économe, et c'est aussi ce qui le rend **aveugle**. Quand rien n'arrive,
-« le chien est calme », « le micro est débranché » et « le seuil est mal réglé »
+« l'ambiance est calme », « le micro est débranché » et « le seuil est mal réglé »
 se ressemblent — et pour savoir lequel, il fallait aller lire le journal sur le
 poste, c'est-à-dire sur la machine qu'on ne peut pas atteindre.
 
@@ -184,7 +184,7 @@ est partagée.
 ### Ce qui se passe pendant l'écoute
 
 - La détection par déclenchement est **relocalisée**, pas arrêtée : le serveur
-  classe la minute entière. Si du canin en ressort, il en fait un épisode normal
+  classe la minute entière. Si quelque chose en ressort, il en fait un épisode normal
   — ligne `events` et MP3 — en plus du WAV de travail.
 - Un seul flux à la fois : le micro n'a qu'un consommateur. Un déclenchement qui
   survient pendant une écoute est ignoré, et un épisode en cours fait refuser
@@ -215,19 +215,19 @@ fenêtres consécutives de même étiquette sont fusionnées, sinon la timeline
 serait une pile d'intervalles qui se chevauchent.
 
 **C'est de l'affichage seul : rien n'est écrit en base, rien n'est compté.**
-L'aboiegramme est alimenté tout seul par le YAMNet embarqué, à la fin de chaque
-écoute. Compter aussi ici serait un doublon — le même chien compté deux fois
+Le noisygram est alimenté tout seul par le YAMNet embarqué, à la fin de chaque
+écoute. Compter aussi ici serait un doublon — la même source comptée deux fois
 pour le même audio.
 
 Deux points de lecture :
 
-- **Le « canin max » ne vient pas de la timeline.** La timeline liste
-  l'étiquette dominante de chaque fenêtre ; le score canin est le **max du
-  groupe canin** sur la même fenêtre. Les deux diffèrent, et c'est voulu : une
+- **Le « score max » ne vient pas de la timeline.** La timeline liste
+  l'étiquette dominante de chaque fenêtre ; le score principal est le **max du
+  groupe surveillé** sur la même fenêtre. Les deux diffèrent, et c'est voulu : une
   fenêtre où `Dog` marque 0,40 et `Speech` 0,46 s'appelle `Speech` dans la
-  timeline, et le chien y serait invisible. La modale surligne ces fenêtres.
+  timeline, et la source y serait invisible. La modale surligne ces fenêtres.
 - **Le seuil d'affichage (`ANALYZE_TIMELINE_MIN_SCORE`, 0,3) n'est pas le seuil
-  de détection (`DOG_THRESHOLD`, 0,35).** Le premier choisit ce qu'on montre, le
+  de détection (`NOISY_THRESHOLD`, 0,35).** Le premier choisit ce qu'on montre, le
   second décide.
 
 Le calcul se fait **dans le conteneur**, avec le même modèle que la détection :
@@ -269,12 +269,12 @@ ouverts et manipulés à la main, sans `docker cp`.
 ### Croissance disque
 
 **Le raisonnement a changé de base.** Une ligne n'est plus un clip de 3 s mais
-un **épisode** — un enregistrement continu qui dure tant que ça aboie. Le bon
-unité n'est donc plus le nombre d'événements, mais les **minutes cumulées de
-chien** : à 64 kbps mono, c'est **480 Ko par minute**, quel que soit le
+un **épisode** — un enregistrement continu qui dure tant qu'il y a du bruit. La bonne
+unité n'est donc plus le nombre d'événements, mais les **minutes cumulées
+d'audio** : à 64 kbps mono, c'est **480 Ko par minute**, quel que soit le
 découpage.
 
-| Cumul d'aboiement | Par jour | Par an |
+| Cumul d'événements | Par jour | Par an |
 |---|---|---|
 | 10 min | 4,8 Mo | ~1,7 Go |
 | 1 h | 29 Mo | ~10,5 Go |
@@ -316,7 +316,7 @@ supprimer aussi les fichiers correspondants :
 
 ```bash
 # lister les MP3 sans ligne en base, et les dates concernées
-docker compose exec db psql -U aboigramme -d aboigramme -tAc \
+docker compose exec db psql -U noisygram -d noisygram -tAc \
   "SELECT mp3_path FROM events WHERE detected_at < now() - interval '1 year'"
 ```
 
@@ -327,7 +327,7 @@ docker compose exec db psql -U aboigramme -d aboigramme -tAc \
 | Symptôme | Cause probable |
 |---|---|
 | Page morte, aucune erreur | Origine non sécurisée. Le bandeau doit nommer l'origine ; sinon voir `docs/CHROME_INSECURE_ORIGIN.md`. |
-| Client sain, compteur à zéro | Les contraintes `getUserMedia`. `echoCancellation`, `noiseSuppression` et `autoGainControl` sont **tous à `true` par défaut dans Chrome** — la suppression de bruit est entraînée à retirer précisément les transitoires non-parole, donc un aboiement. |
+| Client sain, compteur à zéro | Les contraintes `getUserMedia`. `echoCancellation`, `noiseSuppression` et `autoGainControl` sont **tous à `true` par défaut dans Chrome** — la suppression de bruit est entraînée à retirer précisément les transitoires non-parole, donc un événement. |
 | Tout est classé au hasard | Fréquence micro ≠ 48 kHz. Le client envoie la fréquence **native**, le serveur rééchantillonne depuis elle. Vérifier `sample_rate` en base. |
 | `up` échoue, « address already in use » | Le port 5432 de l'hôte est pris par un autre projet. Le service `db` ne publie **aucun** port, il ne devrait pas y avoir de conflit. |
 | Le conteneur redémarre en boucle alors que la base hoquette | `/api/health` renvoie `degraded` en **HTTP 200**, jamais 503 : un 503 ferait redémarrer le conteneur sur un incident transitoire. |
@@ -347,8 +347,8 @@ docker compose exec db psql -U aboigramme -d aboigramme -tAc \
 docker compose exec capture python -m app.tools.selftest
 
 # le protocole WebSocket tient-il, y compris les chemins d'erreur ?
-docker compose cp samples/reference/aboiements.wav capture:/tmp/
-docker compose exec capture python -m app.tools.wstest /tmp/aboiements.wav
+docker compose cp samples/reference/événements.wav capture:/tmp/
+docker compose exec capture python -m app.tools.wstest /tmp/événements.wav
 
 # santé — le champ `role` dit à qui on parle, et `classifier_ready: false`
 # est NORMAL sur l'admin (il n'a pas de modèle)
@@ -417,10 +417,10 @@ court-circuite alors, et le MP3 reste juste.
 
 ### Les épisodes : un enregistrement continu, pas des clips recollés
 
-Quand un chien aboie sans discontinuer, le client **streame** : il ouvre un
+Quand une source sonore ne s'arrête pas, le client **streame** : il ouvre un
 épisode, envoie l'audio au fil de l'eau, et le clôt après 30 s de silence. Le
 serveur classe les fenêtres à la volée, rogne la tête et la queue, et produit
-**un seul MP3** — ou détruit tout si aucune fenêtre n'est canine.
+**un seul MP3** — ou détruit tout si aucune fenêtre n'est surveillée.
 
 Le client envoie **16 kHz** et le serveur refuse tout autre taux sur ce chemin :
 `soxr` est stateful, et l'appeler morceau par morceau introduirait une
@@ -453,4 +453,4 @@ Décisions structurantes, et pourquoi :
 - **Décider avant d'encoder** — un refus n'écrit rien du tout, ce qui économise
   un encodage, une écriture et un `unlink` sur chaque faux positif.
 
-Le document de conception complet est dans [`claude/claude.md`](claude/claude.md).
+Le document de conception complet est dans [`historic/state.md`](historic/state.md).

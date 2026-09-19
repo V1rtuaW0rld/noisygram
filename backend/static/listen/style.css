@@ -635,13 +635,13 @@ dialog#analyse::backdrop {
 /* Une ligne dont la fenêtre contient un événement détecté, même quand l'étiquette
    dominante dit autre chose. Fond teinté ET bordure : la couleur seule ne
    suffit pas à signaler. */
-tr.canin,
+tr.scores_fenetres,
 tr.retenu {
   background: color-mix(in srgb, var(--accent) 14%, transparent);
   box-shadow: inset 3px 0 0 var(--accent);
 }
 
-.card-sub.canin,
+.card-sub.scores_fenetres,
 .card-sub.retenu {
   color: var(--accent);
   font-weight: 600;
@@ -656,7 +656,7 @@ tr.retenu {
   to { opacity: 1; transform: none; }
 }
 
-/* Un sample muet, ou une fenêtre canine cachée : le texte le dit, la couleur le
+/* Un sample muet, ou une fenêtre retenue cachée : le texte le dit, la couleur le
    souligne. Jamais la couleur seule. */
 .card-sub.avert {
   padding: 8px 12px;

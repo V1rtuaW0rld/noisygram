@@ -638,8 +638,8 @@ function rendResume(resume, timeline) {
   $('hero-sub').textContent =
     decimal(resume.per_hour) + ' par heure, sur ' +
     decimal(resume.hours_elapsed.toFixed(1)) + ' h écoulées';
-  $('t-max').textContent = nombre(resume.max_dog_score, 3);
-  $('t-mean').textContent = nombre(resume.mean_dog_score, 3);
+  $('t-max').textContent = nombre(resume.max_noisy_score, 3);
+  $('t-mean').textContent = nombre(resume.mean_noisy_score, 3);
   $('t-prev').textContent = resume.count_prev_day;
   $('t-week').textContent = resume.count_prev_week_same_day;
   $('header-sub').textContent =
@@ -956,7 +956,7 @@ function appliqueTheme(theme) {
   else delete document.documentElement.dataset.theme;
   try {
     localStorage.setItem('noisygram.theme', theme || '');
-    localStorage.setItem('aboigramme.theme', theme || '');
+    localStorage.setItem('noisygram.theme', theme || '');
   } catch (e) {}
   const lienEcouter = document.querySelector('a[href*="/listen/"]');
   if (lienEcouter) {
@@ -1059,13 +1059,13 @@ async function interroge() {
 (function init() {
   const urlTheme = new URLSearchParams(window.location.search).get('theme');
   const enregistre = urlTheme || (() => {
-    try { return localStorage.getItem('noisygram.theme') || localStorage.getItem('aboigramme.theme'); } catch (e) { return null; }
+    try { return localStorage.getItem('noisygram.theme') || localStorage.getItem('noisygram.theme'); } catch (e) { return null; }
   })();
   if (enregistre) {
     document.documentElement.dataset.theme = enregistre;
     try {
       localStorage.setItem('noisygram.theme', enregistre);
-      localStorage.setItem('aboigramme.theme', enregistre);
+      localStorage.setItem('noisygram.theme', enregistre);
     } catch (e) {}
   }
   const lienEcouter = document.querySelector('a[href*="/listen/"]');
@@ -1098,7 +1098,7 @@ async function interroge() {
   });
 
   window.addEventListener('storage', (e) => {
-    if (e.key === 'noisygram.theme' || e.key === 'aboigramme.theme') {
+    if (e.key === 'noisygram.theme' || e.key === 'noisygram.theme') {
       appliqueTheme(e.newValue || null);
     }
   });

@@ -19,7 +19,7 @@ def build_classifier(settings: Settings) -> ClassifierBackend:
         return YamnetLitertBackend(
             model_path=settings.model_path,
             class_map_path=settings.class_map_path,
-            threshold=settings.dog_threshold,
+            threshold=settings.noisy_threshold,
             peak_normalize=settings.peak_normalize,
         )
 
@@ -30,7 +30,7 @@ def build_classifier(settings: Settings) -> ClassifierBackend:
             )
         return RemoteHttpBackend(
             url=settings.remote_classifier_url,
-            threshold=settings.dog_threshold,
+            threshold=settings.noisy_threshold,
             timeout_s=settings.remote_classifier_timeout_s,
         )
 

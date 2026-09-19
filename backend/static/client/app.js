@@ -1,5 +1,5 @@
 /**
- * Aboigramme — client de capture.
+ * Noisygram — client de capture.
  *
  * Répartition des rôles (§9.5) : le WORKLET possède le buffer audio et ne fait
  * que trois choses — downmixer, tenir le ring, poster un RMS par trame. Le
@@ -48,7 +48,7 @@ const CONFIG = {
   minRmsFloor: 0.004,
 
   // Garde-tempête, réglable lui aussi. À 12 déclenchements par minute, la
-  // capture se coupait au bout de 36 s : un chien qui aboie deux minutes
+  // capture se coupait au bout de 36 s : une source sonore de deux minutes
   // n'était jamais enregistré d'un seul tenant, et aucun recollage ne pouvait
   // le reconstituer. 40 laisse ~2 min continues, tout en gardant le filet de
   // sécurité contre un déclencheur bloqué par une alarme de voiture.
@@ -59,7 +59,7 @@ const CONFIG = {
   // Épisode. Poussées par le serveur ; ces valeurs ne valent qu'au premier
   // démarrage, avant le hello_ack.
   //
-  // streamSilenceMs est ce qui CLÔT un épisode : le chien peut aboyer, se
+  // streamSilenceMs est ce qui CLÔT un épisode : la source peut continuer, se
   // taire 15 s, reprendre — c'est le même épisode, et le fichier gardera la
   // pause, parce qu'un fichier recollé mentirait sur l'axe du temps.
   streamSilenceMs: 30000,
@@ -136,7 +136,7 @@ const state = {
   stormSuspendedUntil: 0,
   eventTimes: [],
 
-  // Épisode en cours. Le client streame tant que ça aboie, et clôt après
+  // Épisode en cours. Le client streame tant qu'il y a du bruit, et clôt après
   // assez de silence : le fichier produit couvre la scène d'un bout à l'autre,
   // sans couture.
   streaming: false,
@@ -175,13 +175,13 @@ const state = {
   // client_seq) — prendrait le premier segment de la nouvelle session pour un
   // rejeu de l'ancienne : il répondrait « duplicate » et JETTERAIT l'audio.
   // Une perte d'événement silencieuse, exactement ce qu'on cherche à éviter.
-  seq: Number(window.localStorage.getItem('aboigramme.seq') || 0),
+  seq: Number(lireReglage('seq') || 0),
 };
 
 function nextSeq() {
   state.seq += 1;
   try {
-    window.localStorage.setItem('aboigramme.seq', String(state.seq));
+    window.localStorage.setItem('noisygram.seq', String(state.seq));
   } catch (err) {
     /* mode privé : on continue, au risque d'un doublon après rechargement */
   }
@@ -257,9 +257,9 @@ function geo() {
 async function startAudio() {
   // ① Les trois contraintes. echoCancellation, noiseSuppression et
   // autoGainControl sont TOUS à true par défaut dans Chrome. L'AGC fait
-  // baisser le gain sur une scène calme jusqu'à ce qu'un aboiement bouge à
+  // baisser le gain sur une scène calme jusqu'à ce qu'un événement bouge à
   // peine le vumètre ; la suppression de bruit est entraînée à retirer
-  // précisément les transitoires non-parole — un aboiement, exactement.
+  // précisément les transitoires non-parole — un événement, exactement.
   // Résultat sans ça : un client parfaitement sain dont le compteur reste à 0.
   state.stream = await navigator.mediaDevices.getUserMedia({
     audio: {
@@ -319,7 +319,7 @@ async function startAudio() {
   state.micGainNode = state.context.createGain();
   state.micGainNode.gain.value = CONFIG.micGain;
 
-  state.node = new AudioWorkletNode(state.context, 'aboigramme-recorder', {
+  state.node = new AudioWorkletNode(state.context, 'noisygram-recorder', {
     numberOfInputs: 1,
     numberOfOutputs: 1,
     outputChannelCount: [1],
@@ -560,7 +560,7 @@ function evaluateTrigger() {
 
   // Pendant une écoute, on ne déclenche PAS — mais rien n'est perdu pour
   // autant : le serveur enregistre la minute entière et la classe fenêtre par
-  // fenêtre. Si du canin en ressort, il en fait un épisode à la fin. La
+  // fenêtre. Si quelque chose en ressort, il en fait un épisode à la fin. La
   // détection n'est pas arrêtée, elle est RELOCALISÉE.
   //
   // Le worklet refuse de toute façon un `trigger` pendant une écoute ; ce test
@@ -633,7 +633,7 @@ function startStream(now) {
   state.streaming = true;
   state.armedForNext = false;
   // Le cooldown n'est PAS repositionné : il ajouterait jusqu'à 3 s de zone
-  // morte après chaque épisode, et sur des aboiements espacés le client
+  // morte après chaque épisode, et sur des événements espacés le client
   // manquerait le suivant — un compteur à zéro sur une boîte qui a l'air saine.
   state.streamSeq = nextSeq();
   state.streamChunks = 0;
@@ -774,7 +774,7 @@ function startListen(msg) {
   // jusque-là, exactement comme s'il s'était terminé seul. Le son continue dans
   // le WAV de l'écoute.
   //
-  // Refuser serait le pire des deux mondes : c'est quand ça aboie qu'on a envie
+  // Refuser serait le pire des deux mondes : c'est quand ça détecte qu'on a envie
   // d'écouter, et sur un terrain actif un épisode est ouvert presque toujours.
   if (state.streaming) {
     log('écoute demandée — l\'épisode en cours est clos et archivé', 'warn');
@@ -1066,8 +1066,8 @@ function handleServerMessage(msg) {
     const patch = msg.config_patch || {};
     state.serverConfigPatch = patch;
     if (patch.cooldown_ms) CONFIG.cooldownMs = patch.cooldown_ms;
-    const hasLocalRatio = window.localStorage.getItem('aboigramme.triggerRatio') !== null;
-    const hasLocalFloor = window.localStorage.getItem('aboigramme.minRmsFloor') !== null;
+    const hasLocalRatio = lireReglage('triggerRatio') !== null;
+    const hasLocalFloor = lireReglage('minRmsFloor') !== null;
     if (!hasLocalRatio && patch.trigger_ratio) {
       CONFIG.triggerRatio = patch.trigger_ratio;
       if ($('cfg-trigger-ratio')) $('cfg-trigger-ratio').value = patch.trigger_ratio;
@@ -1139,8 +1139,8 @@ function handleServerMessage(msg) {
     } else {
       state.counters.rejected++;
     }
-    $('c-score').textContent = fmt(msg.dog_score, 3) + ' / bark ' + fmt(msg.bark_score, 3);
-    log('seq ' + msg.seq + ' ' + f + ' — score ' + fmt(msg.dog_score, 3) +
+    $('c-score').textContent = fmt(msg.noisy_score, 3) + ' / bark ' + fmt(msg.bark_score, 3);
+    log('seq ' + msg.seq + ' ' + f + ' — score ' + fmt(msg.noisy_score, 3) +
         ', bark ' + fmt(msg.bark_score, 3) + ' (' + msg.reason + ')',
         msg.accepted ? 'ok' : null);
     updateCounters();
@@ -1277,10 +1277,25 @@ function formatMicGain(g) {
   return g.toFixed(1) + '× (+' + db + ' dB)';
 }
 
+// Les clés de réglage ont suivi le renommage du produit (`noisygram.*`). On
+// relit les anciennes (`aboigramme.*`) en REPLI : sans ça, un poste de terrain
+// qui a déjà sa calibration — gain micro, déclencheur, plancher RMS — la
+// perdrait au premier rechargement, et il faudrait retourner régler la boîte.
+// Le repli est en lecture seule : l'écriture suivante migre la clé d'elle-même.
+function lireReglage(cle) {
+  try {
+    const v = window.localStorage.getItem('noisygram.' + cle);
+    if (v !== null) return v;
+    return window.localStorage.getItem('aboigramme.' + cle);
+  } catch (_) {
+    return null;
+  }
+}
+
 function initThresholdSettings() {
-  const savedGain = window.localStorage.getItem('aboigramme.micGain');
-  const savedRatio = window.localStorage.getItem('aboigramme.triggerRatio');
-  const savedFloor = window.localStorage.getItem('aboigramme.minRmsFloor');
+  const savedGain = lireReglage('micGain');
+  const savedRatio = lireReglage('triggerRatio');
+  const savedFloor = lireReglage('minRmsFloor');
   if (savedGain !== null) {
     const val = parseFloat(savedGain);
     if (!Number.isNaN(val) && val >= 1.0 && val <= 10.0) CONFIG.micGain = val;
@@ -1316,7 +1331,7 @@ function initThresholdSettings() {
           state.micGainNode.gain.value = v;
         }
       }
-      try { window.localStorage.setItem('aboigramme.micGain', String(v)); } catch (_) {}
+      try { window.localStorage.setItem('noisygram.micGain', String(v)); } catch (_) {}
     });
   }
 
@@ -1327,7 +1342,7 @@ function initThresholdSettings() {
       const v = parseFloat(e.target.value);
       CONFIG.triggerRatio = v;
       valRatio.textContent = v.toFixed(1) + '×';
-      try { window.localStorage.setItem('aboigramme.triggerRatio', String(v)); } catch (_) {}
+      try { window.localStorage.setItem('noisygram.triggerRatio', String(v)); } catch (_) {}
       updateReadout();
     });
   }
@@ -1339,7 +1354,7 @@ function initThresholdSettings() {
       const v = parseFloat(e.target.value);
       CONFIG.minRmsFloor = v;
       valFloor.textContent = v.toFixed(4);
-      try { window.localStorage.setItem('aboigramme.minRmsFloor', String(v)); } catch (_) {}
+      try { window.localStorage.setItem('noisygram.minRmsFloor', String(v)); } catch (_) {}
       updateReadout();
     });
   }
@@ -1347,6 +1362,11 @@ function initThresholdSettings() {
   if (btnReset) {
     btnReset.addEventListener('click', () => {
       try {
+        window.localStorage.removeItem('noisygram.micGain');
+        window.localStorage.removeItem('noisygram.triggerRatio');
+        window.localStorage.removeItem('noisygram.minRmsFloor');
+        // Les clés d'avant le renommage aussi, sinon le repli de `lireReglage`
+        // ressusciterait un réglage qu'on vient de remettre à zéro.
         window.localStorage.removeItem('aboigramme.micGain');
         window.localStorage.removeItem('aboigramme.triggerRatio');
         window.localStorage.removeItem('aboigramme.minRmsFloor');
@@ -1462,7 +1482,7 @@ function appliqueTheme(theme) {
   else delete document.documentElement.dataset.theme;
   try {
     localStorage.setItem('noisygram.theme', theme || '');
-    localStorage.setItem('aboigramme.theme', theme || '');
+    localStorage.setItem('noisygram.theme', theme || '');
   } catch (e) {}
   majBoutonTheme();
 }
@@ -1470,7 +1490,7 @@ function appliqueTheme(theme) {
 function initTheme() {
   const urlTheme = new URLSearchParams(window.location.search).get('theme');
   const enregistre = urlTheme || (() => {
-    try { return localStorage.getItem('noisygram.theme') || localStorage.getItem('aboigramme.theme'); } catch (e) { return null; }
+    try { return localStorage.getItem('noisygram.theme') || localStorage.getItem('noisygram.theme'); } catch (e) { return null; }
   })();
   if (enregistre) {
     appliqueTheme(enregistre);
@@ -1486,7 +1506,7 @@ function initTheme() {
   }
 
   window.addEventListener('storage', (e) => {
-    if (e.key === 'noisygram.theme' || e.key === 'aboigramme.theme') {
+    if (e.key === 'noisygram.theme' || e.key === 'noisygram.theme') {
       appliqueTheme(e.newValue || null);
     }
   });

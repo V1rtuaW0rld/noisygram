@@ -172,11 +172,11 @@ class ListenCancel(BaseModel):
 class ClassifierInfo(BaseModel):
     backend: str
     model: str
-    # Le score seuillÃ© est le MAX sur le groupe canin, pas sur une seule
+    # Le score seuillÃ© est le MAX sur le groupe surveillé, pas sur une seule
     # classe. On annonce le groupe entier pour qu'un client puisse expliquer
     # ce qui a dÃ©clenchÃ©, plutÃ´t qu'un index opaque.
-    dog_index: int | None
-    dog_classes: list[list] = []
+    noisy_index: int | None
+    noisy_classes: list[list] = []
     bark_index: int | None = None
     threshold: float
     window_samples: int
@@ -203,7 +203,7 @@ class HealthOut(BaseModel):
     media_dir: Literal["ok", "error"]
     media_writable: bool
     classifier_ready: bool
-    dog_index: int | None = None
+    noisy_index: int | None = None
     bark_index: int | None = None
     threshold: float
     disk_free_bytes: int | None = None
@@ -217,11 +217,11 @@ class EventOut(BaseModel):
     client_captured_at: datetime | None
     client_id: str | None
     client_seq: int | None
-    # dog_score est le critÃ¨re d'acceptation (max du groupe canin) ; bark_score
+    # noisy_score est le critÃ¨re d'acceptation (max du groupe surveillé) ; bark_score
     # n'est qu'un diagnostic conservÃ© pour comparer les deux critÃ¨res.
-    dog_score: float
+    noisy_score: float
     bark_score: float | None
-    mean_dog_score: float | None
+    mean_noisy_score: float | None
     duration_ms: int
     sample_rate: int
     mp3_url: str
@@ -231,7 +231,7 @@ class EventOut(BaseModel):
     top_classes: list[Any] | None
     # Nombre de RAFALES distinctes, pas de fenêtres : c'est le chiffre que les
     # graphiques somment, et celui qu'on veut lire dans « les capturés ».
-    bark_count: int = 1
+    noisy_count: int = 1
     wav_name: str | None = None
     qc_score: float | None = None
     qc_valid: bool | None = None
@@ -268,7 +268,7 @@ class SequenceEvent(BaseModel):
 
     id: int
     detected_at: datetime
-    dog_score: float
+    noisy_score: float
     duration_ms: int
     mp3_url: str
     mp3_bytes: int | None = None
@@ -317,8 +317,8 @@ class SummaryOut(BaseModel):
     # barks_today / heures_Ã©coulÃ©es, PAS /24 : diviser par 24 Ã  9 h fait
     # paraÃ®tre chaque matin calme et chaque soir alarmant.
     per_hour: float
-    max_dog_score: float | None
-    mean_dog_score: float | None
+    max_noisy_score: float | None
+    mean_noisy_score: float | None
     first_detected_at: datetime | None
     last_detected_at: datetime | None
     count_prev_day: int
@@ -394,8 +394,8 @@ class OndemandEntry(BaseModel):
     name: str
     bytes: int | None = None
     threshold: float | None = None
-    dog_score: float | None = None
-    mean_dog_score: float | None = None
+    noisy_score: float | None = None
+    mean_noisy_score: float | None = None
     windows: int | None = None
     windows_retenues: int | None = None
     duration_ms: int | None = None

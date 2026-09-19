@@ -1,4 +1,4 @@
-/* Aboigramme — dashboard.
+/* Noisygram — dashboard.
  *
  * Les valeurs sombres sont déclarées DEUX FOIS, volontairement :
  *   • sous la requête média, pour suivre le réglage du système ;
@@ -294,7 +294,7 @@ button.export:hover { color: var(--ink); }
 .direct[data-etat="pause"] { color: var(--muted); }
 
 /* Deux pulsations à l'arrivée d'un événement : assez pour attirer l'œil,
-   assez court pour ne pas clignoter en permanence un soir d'aboiements. */
+   assez court pour ne pas clignoter en permanence un soir d'événements. */
 @media (prefers-reduced-motion: no-preference) {
   .direct[data-etat="nouveau"] .direct-dot { animation: direct-pouls 700ms ease-out 2; }
 }

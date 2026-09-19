@@ -1,5 +1,5 @@
 /**
- * Aboigramme — worklet d'enregistrement.
+ * Noisygram — worklet d'enregistrement.
  *
  * Responsabilités, et rien d'autre :
  *   1. downmixer en mono          — (L+R)/2, JAMAIS input[0][0] en aveugle
@@ -509,4 +509,4 @@ class RecorderProcessor extends AudioWorkletProcessor {
   }
 }
 
-registerProcessor('aboigramme-recorder', RecorderProcessor);
+registerProcessor('noisygram-recorder', RecorderProcessor);

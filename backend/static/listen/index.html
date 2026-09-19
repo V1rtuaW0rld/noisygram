@@ -9,7 +9,7 @@
   (function() {
     try {
       var p = new URLSearchParams(window.location.search).get('theme');
-      var t = p || localStorage.getItem('noisygram.theme') || localStorage.getItem('aboigramme.theme');
+      var t = p || localStorage.getItem('noisygram.theme') || localStorage.getItem('noisygram.theme');
       if (t) document.documentElement.dataset.theme = t;
     } catch (e) {}
   })();
@@ -286,7 +286,7 @@
       <dl class="releve">
         <div><dt>Durée</dt><dd id="a-duree">—</dd></div>
         <div><dt>Fenêtres</dt><dd id="a-fenetres">—</dd></div>
-        <div><dt>Score max</dt><dd id="a-canin">—</dd></div>
+        <div><dt>Score max</dt><dd id="a-scores_fenetres">—</dd></div>
         <div><dt>Fenêtres retenues</dt><dd id="a-retenues">—</dd></div>
         <div><dt>Niveau (pic)</dt><dd id="a-niveau">—</dd></div>
       </dl>
@@ -294,7 +294,7 @@
       <!-- Le niveau AVANT le score : un sample muet explique tout le reste, et
            sans ce bandeau il ressemble à un lecteur cassé. -->
       <p class="card-sub avert" id="a-niveau-note" hidden>—</p>
-      <p class="card-sub" id="a-canin-note" hidden>—</p>
+      <p class="card-sub" id="a-scores_fenetres-note" hidden>—</p>
 
       <div class="table-scroll">
         <table id="analyse-table">
@@ -402,7 +402,7 @@
         <div id="qc-vue-bestof" class="qc-tab-content" hidden>
           <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 6px;">
             <p class="card-sub" style="margin: 0;">
-              Extraits nets actifs (avec <code>Aboiements.wav</code> de base) :
+              Extraits nets actifs (avec <code>reference.wav</code> de base) :
             </p>
             <button type="button" id="qc-rebuild-btn" class="btn-primary" style="padding: 3px 10px; font-size: 11px;">Reconstruire</button>
           </div>

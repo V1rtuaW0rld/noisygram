@@ -1,7 +1,7 @@
 """Test de bout en bout du protocole WebSocket, contre un serveur en marche.
 
-    docker compose cp samples/reference/Aboiements.wav api:/tmp/
-    docker compose exec api python -m app.tools.wstest /tmp/Aboiements.wav
+    docker compose cp samples/reference/reference.wav api:/tmp/
+    docker compose exec api python -m app.tools.wstest /tmp/reference.wav
 
 Envoie de VRAIS segments et vérifie chaque réponse, y compris tous les chemins
 d'erreur du §6 : un code d'erreur qui n'est jamais déclenché est un code
@@ -140,9 +140,9 @@ async def main_async(url: str, wav_path: str, client_id: str) -> int:
         )
         info = ack.get("classifier", {})
         check(
-            "groupe canin annoncé",
-            info.get("dog_classes") and len(info["dog_classes"]) == 7,
-            f"{info.get('dog_classes')}",
+            "groupe surveillé annoncé",
+            info.get("noisy_classes") and len(info["noisy_classes"]) == 7,
+            f"{info.get('noisy_classes')}",
         )
         check(
             "limites annoncées",
@@ -167,7 +167,7 @@ async def main_async(url: str, wav_path: str, client_id: str) -> int:
         )
 
         # -- segments réels ------------------------------------------------
-        print(f"\n■ {len(chunks)} segments réels (aboiements)")
+        print(f"\n■ {len(chunks)} segments réels (événements)")
         accepted = 0
         event_ids: list[int] = []
         for i, chunk in enumerate(chunks):
@@ -181,13 +181,13 @@ async def main_async(url: str, wav_path: str, client_id: str) -> int:
                 accepted += 1
                 event_ids.append(res["event_id"])
             print(
-                f"    seq={i} chien={res['dog_score']:.3f} bark={res['bark_score']:.3f} "
+                f"    seq={i} noisy={res['noisy_score']:.3f} bark={res['bark_score']:.3f} "
                 f"→ {'ACCEPTÉ' if res['accepted'] else 'refusé'} "
                 f"(event {res['event_id']}, {res['mp3_bytes']} o, "
                 f"{res['processing_ms']} ms, {res['reason']})"
             )
         check(
-            "tous les aboiements acceptés",
+            "tous les événements acceptés",
             accepted == len(chunks),
             f"{accepted}/{len(chunks)}",
         )
@@ -218,7 +218,7 @@ async def main_async(url: str, wav_path: str, client_id: str) -> int:
         print("\n■ Silence (3 s de zéros)")
         silence = np.zeros(step, dtype="<i2")
         res = await send_segment(cli, 100, silence.tobytes(), sample_rate=rate)
-        check("silence refusé", res.get("accepted") is False, f"chien={res.get('dog_score')}")
+        check("silence refusé", res.get("accepted") is False, f"noisy={res.get('noisy_score')}")
         check(
             "aucun MP3 pour un refus",
             res.get("mp3_url") is None and res.get("event_id") is None,
@@ -316,7 +316,7 @@ async def main_async(url: str, wav_path: str, client_id: str) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m app.tools.wstest")
-    parser.add_argument("wav", help="fichier WAV 16 bits contenant de vrais aboiements")
+    parser.add_argument("wav", help="fichier WAV 16 bits contenant de vrais événements")
     parser.add_argument("--url", default=DEFAULT_URL)
     parser.add_argument(
         "--client",
@@ -327,7 +327,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
     print("=" * 72)
-    print(f"  Aboigramme — test du protocole WebSocket contre {args.url}")
+    print(f"  Noisygram — test du protocole WebSocket contre {args.url}")
     print(f"  client_id = {args.client}")
     print("=" * 72)
     try:

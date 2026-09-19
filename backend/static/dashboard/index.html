@@ -9,7 +9,7 @@
   (function() {
     try {
       var p = new URLSearchParams(window.location.search).get('theme');
-      var t = p || localStorage.getItem('noisygram.theme') || localStorage.getItem('aboigramme.theme');
+      var t = p || localStorage.getItem('noisygram.theme') || localStorage.getItem('noisygram.theme');
       if (t) document.documentElement.dataset.theme = t;
     } catch (e) {}
   })();
@@ -248,7 +248,7 @@
           <div id="qc-vue-bestof" class="qc-tab-content" hidden>
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 6px;">
               <p class="card-sub" style="margin: 0;">
-                Extraits nets actifs (avec <code>Aboiements.wav</code> de base) :
+                Extraits nets actifs (avec <code>reference.wav</code> de base) :
               </p>
               <button type="button" id="qc-rebuild-btn" class="btn-primary" style="padding: 3px 10px; font-size: 11px;">Reconstruire</button>
             </div>

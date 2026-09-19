@@ -1,4 +1,4 @@
-# Aboigramme — Document de conception et de reprise
+# Noisygram — Document de conception et de reprise
 
 > **Date** : 18 septembre 2026
 > **État** : **implémenté, déployé, et utilisé sur le terrain.** Les huit étapes du §11
@@ -6,6 +6,14 @@
 > ⚠️ **Le §17 liste ce que l'implémentation a corrigé dans ce document.** Plusieurs
 > affirmations de la conception se sont révélées fausses à la mesure — les lire avant de
 > s'appuyer sur les sections concernées.
+
+> **Bascule du 19 septembre 2026.** Le projet s'appelait Aboigramme et visait un seul
+> type de source sonore. Il qualifie en réalité du bruit quel qu'il soit : le nom, le
+> vocabulaire et le schéma ont été généralisés — `dog_*` → `noisy_*` par la **migration
+> 7**, `DOG_THRESHOLD` → `NOISY_THRESHOLD`, et le seuil calibré (0,25) est inchangé.
+> Ce document a suivi le renommage. Les **libellés de classes du modèle** (`Dog`,
+> `Bark`, `Howl`…) sont eux intacts : ce sont des chaînes du class map YAMNet, pas du
+> vocabulaire du projet.
 
 ---
 
@@ -97,7 +105,7 @@ n'obtient jamais de `MediaStream` à lui donner. Il ne sert que de repli pour un
 antérieur à la v66 (avril 2018) — un problème d'**âge de navigateur**, pas de contexte.
 
 **Un certificat auto-signé ne suffit pas pour Chrome.** La voie HTTPS exige un vrai nom
-(`aboigramme.lan` + `tls internal` dans Caddy + import du CA racine dans le magasin de
+(`noisygram.lan` + `tls internal` dans Caddy + import du CA racine dans le magasin de
 certificats Windows).
 
 ### 2.3 Découverte bloquante : le port 5432 est déjà pris
@@ -198,7 +206,7 @@ comme tel, pour qu'un futur changement de transport ne casse pas silencieusement
 noisy/
 ├── docker-compose.yml
 ├── .env  .env.example  .gitignore  .dockerignore  README.md
-├── claude/claude.md                          ← ce document
+├── historic/state.md                         ← ce document
 ├── export/                                   # bind mount capture+admin, les WAV d'écoute
 ├── docs/
 │   ├── CADDY.md                              # Caddyfile + import du CA racine (doc seule)
@@ -299,15 +307,15 @@ déjà réglé.
 ### 5.4 Décision : le score seuillé est le **max** sur les fenêtres, pas la moyenne
 
 > ⚠️ **Corrigé — voir §17.2.** Le *max sur les fenêtres* est conservé, mais il porte sur le
-> **groupe canin** (`Dog`, `Bark`, `Yip`, `Howl`, `Bow-wow`, `Growling`, `Whimper`), **pas
+> **groupe surveillé** (`Dog`, `Bark`, `Yip`, `Howl`, `Bow-wow`, `Growling`, `Whimper`), **pas
 > sur la seule classe `Bark`**. Mesuré sur les enregistrements réels du terrain, `Bark`
 > s'effondre à 0,262 là où `Dog` monte à 0,586 sur les **mêmes** segments : c'est le moins
-> bon discriminateur du groupe, et la seule classe qui rate de vrais aboiements. La variable
-> d'environnement s'appelle désormais `DOG_THRESHOLD` ; `bark_score` reste stockée en
+> bon discriminateur du groupe, et la seule classe qui rate de vrais événements. La variable
+> d'environnement s'appelle désormais `NOISY_THRESHOLD` ; `bark_score` reste stockée en
 > **diagnostic**, pour comparer les deux critères sur des données accumulées.
 
-Un clip de 3 s contenant un aboiement de 0,5 s et 2,5 s de vent a un pic élevé et une moyenne
-basse. Moyenner le rejetterait. On stocke `mean_dog_score` **en plus**, pour le réglage
+Un clip de 3 s contenant un événement de 0,5 s et 2,5 s de vent a un pic élevé et une moyenne
+basse. Moyenner le rejetterait. On stocke `mean_noisy_score` **en plus**, pour le réglage
 ultérieur — c'est la colonne qui dira si 0,35 était le bon seuil.
 
 ### 5.5 Persistance et temps
@@ -322,7 +330,7 @@ pool) ; tout découpage horaire se fait explicitement avec `AT TIME ZONE $tz`, d
 `detected_at` est calculé **côté serveur** (`now() - post_roll`) : l'horloge du vieux PC Windows
 est exactement le genre de chose qui dérive de plusieurs heures en silence.
 `client_captured_at` est stocké à part, en **diagnostic seulement** — après un mois il dira si
-l'horloge du PC a dérivé, ce qui serait autrement invisible et corromprait le KPI « aboiements
+l'horloge du PC a dérivé, ce qui serait autrement invisible et corromprait le KPI « événements
 du jour ».
 
 ### 5.6 Pas de CORS
@@ -375,7 +383,7 @@ l'inspecteur — ce qui compte pour une machine qu'il faut aller déboguer dehor
 
 // segment_result — exactement un par trame binaire, ACCEPTÉ OU NON
 {"type":"segment_result","seq":142,"event_id":87,"accepted":true,
- "bark_score":0.871,"dog_score":0.402,"mean_bark_score":0.514,
+ "bark_score":0.871,"noisy_score":0.402,"mean_bark_score":0.514,
  "top_classes":[["Bark",70,0.871],["Dog",69,0.402],["Animal",67,0.113]],
  "duration_ms":3000,"mp3_url":"/media/2026/09/17/000087.mp3","mp3_bytes":24112,
  "processing_ms":184,"reason":"bark_score_ok","server_time_ms":1758110591674}
@@ -425,7 +433,7 @@ droit d'avoir eu lieu, et l'appariement implicite se tromperait une fois sur mil
 façon indiagnosticable.
 
 **Nouveaux types plutôt que réemploi de `stream_start`** : un épisode est jugé, rogné, et son
-temporaire est JETÉ s'il n'y a pas de chien ; une écoute est PUBLIÉE en WAV quoi qu'il
+temporaire est JETÉ s'il n'y a pas d'événement ; une écoute est PUBLIÉE en WAV quoi qu'il
 arrive, et peut **en plus** produire un épisode. Deux finalisations différentes, donc deux
 états différents — et l'exclusivité devient structurelle (`self._stream` / `self._listen`)
 au lieu d'un drapeau à ne pas oublier de tester. Bénéfice secondaire : un rollback serveur
@@ -441,7 +449,7 @@ au lieu d'un drapeau à ne pas oublier de tester. Bénéfice secondaire : un rol
 // descendant
 {"type":"listen_started","listen_id":"…","remaining_ms":60000,"chunk_ms":200,"joined":false}
 // trames binaires s16le 16 kHz
-{"type":"listen_progress","received_ms":8000,"windows":16,"max_dog_score":0.79,
+{"type":"listen_progress","received_ms":8000,"windows":16,"max_noisy_score":0.79,
  "dropped_chunks":0,"dropped_windows":0}
 {"type":"listen_ended","listen_id":"…","wav_name":"20260918-143205-123_ondemand_60s.wav",
  "reason":"duration","windows":123,"partial":false,"analysis":{…},"event_id":412,
@@ -499,13 +507,13 @@ CREATE TABLE IF NOT EXISTS schema_meta (
 
 CREATE TABLE IF NOT EXISTS events (
     id                 BIGSERIAL   PRIMARY KEY,
-    detected_at        TIMESTAMPTZ NOT NULL,          -- instant serveur de l'aboiement
+    detected_at        TIMESTAMPTZ NOT NULL,          -- instant serveur de l'événement
     received_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
     client_captured_at TIMESTAMPTZ,                   -- horloge client : diagnostic only
     client_id          TEXT,
     client_seq         BIGINT,
     bark_score         REAL        NOT NULL,
-    dog_score          REAL,
+    noisy_score          REAL,
     mean_bark_score    REAL,
     duration_ms        INTEGER     NOT NULL,
     sample_rate        INTEGER     NOT NULL,
@@ -516,7 +524,7 @@ CREATE TABLE IF NOT EXISTS events (
     top_classes        JSONB,
     created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
     CONSTRAINT events_bark_score_chk CHECK (bark_score >= 0.0 AND bark_score <= 1.0),
-    CONSTRAINT events_dog_score_chk  CHECK (dog_score IS NULL OR (dog_score >= 0.0 AND dog_score <= 1.0)),
+    CONSTRAINT events_noisy_score_chk  CHECK (noisy_score IS NULL OR (noisy_score >= 0.0 AND noisy_score <= 1.0)),
     CONSTRAINT events_duration_chk   CHECK (duration_ms BETWEEN 100 AND 10000),
     CONSTRAINT events_rate_chk       CHECK (sample_rate BETWEEN 8000 AND 96000)
 );
@@ -540,7 +548,7 @@ Requête d'insertion correspondante :
 ```sql
 INSERT INTO events (
     detected_at, received_at, client_captured_at, client_id, client_seq,
-    bark_score, dog_score, mean_bark_score, duration_ms, sample_rate,
+    bark_score, noisy_score, mean_bark_score, duration_ms, sample_rate,
     mp3_path, mp3_bytes, backend, model_version, top_classes
 ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
 ON CONFLICT (client_id, client_seq) DO NOTHING
@@ -625,8 +633,8 @@ C'est la partie qui décide si tout le reste fonctionne. Aucun des trois ne prod
 
 **① Les contraintes `getUserMedia`.** `echoCancellation`, `noiseSuppression` et
 `autoGainControl` sont **tous à `true` par défaut dans Chrome**. L'AGC fait baisser le gain sur
-une scène calme jusqu'à ce qu'un aboiement bouge à peine le vumètre ; la suppression de bruit
-est entraînée à retirer précisément les transitoires non-parole — un aboiement, exactement.
+une scène calme jusqu'à ce qu'un événement bouge à peine le vumètre ; la suppression de bruit
+est entraînée à retirer précisément les transitoires non-parole — un événement, exactement.
 Résultat : un client qui a l'air parfaitement sain et dont le compteur reste à zéro.
 
 ```js
@@ -681,9 +689,9 @@ déclenche sur son propre remplissage.
 ### 9.4 Débounce — trois couches, toutes nécessaires
 
 1. **Verrou de capture** : de déclenchement jusqu'à `pré + post` (3 s), aucun nouveau
-   déclenchement accepté. Sans lui, un seul aboiement génère 4 à 6 segments qui se chevauchent.
+   déclenchement accepté. Sans lui, un seul événement génère 4 à 6 segments qui se chevauchent.
 2. **Cooldown** de 3 s après la fin d'une capture, mesuré depuis le *début* de capture (donc
-   1 s de temps mort effectif après le post-roll). Les aboiements à moins de 3 s d'écart
+   1 s de temps mort effectif après le post-roll). Les événements à moins de 3 s d'écart
    fusionnent en un seul « épisode », dont le clip de 3 s les contient tous — c'est l'unité
    sémantiquement utile.
 3. **Garde-tempête** : compteur glissant sur 60 s ; au-delà de **12 événements/min**,
@@ -764,10 +772,10 @@ de ne pas avoir de DNS fonctionnel.
 
 | Besoin | Forme | Couleur | Pourquoi pas l'alternative |
 |---|---|---|---|
-| Chaque point = un aboiement, cliquable | **scatter**, x = temps, y = score | une seule teinte | Une ligne impliquerait une continuité entre événements discrets ; et un dégradé sur la teinte doublerait l'encodage du score déjà porté par y |
+| Chaque point = un événement, cliquable | **scatter**, x = temps, y = score | une seule teinte | Une ligne impliquerait une continuité entre événements discrets ; et un dégradé sur la teinte doublerait l'encodage du score déjà porté par y |
 | Pics de nuisance par heure | **colonnes**, 0–23 | séquentiel, une teinte | Catégorie ordonnée → séquentiel correct ; un camembert de 24 parts est illisible |
 | Tendance quotidienne | **ligne** 2 px | séquentiel | Une seule série → **pas de légende** ; le titre de la carte la nomme |
-| Chiffres clés | **tuiles + un chiffre héros** | — | Une barre unique pour « aboiements du jour » est un anti-pattern : le nombre *est* le graphique |
+| Chiffres clés | **tuiles + un chiffre héros** | — | Une barre unique pour « événements du jour » est un anti-pattern : le nombre *est* le graphique |
 
 ### 10.2 Timeline
 
@@ -785,7 +793,7 @@ de ne pas avoir de DNS fonctionnel.
 - Clic → `getElementsAtEventForMode(e,'nearest',{intersect:false,radius:24},true)`. La cible de
   **24 px** est ce qui rend les points réellement cliquables — et c'est l'action principale de
   la page. Un point de 8 px est une cible inutilisable.
-- Seuil `BARK_THRESHOLD` tracé comme une **hairline pleine** (jamais pointillée : le pointillé
+- Seuil `NOISY_THRESHOLD` tracé comme une **hairline pleine** (jamais pointillée : le pointillé
   se lit comme « projection »), avec un label direct `seuil 0,35`.
 
 ### 10.3 Autres graphiques
@@ -803,13 +811,13 @@ de ne pas avoir de DNS fonctionnel.
   `chart.update()`. **Ne jamais coder une hex dans une config Chart.js**, sinon le thème sombre
   sera à moitié appliqué. Les valeurs sombres sont déclarées sous `prefers-color-scheme`
   (garde `:where(:not([data-theme="light"]))`) **et** sous `[data-theme="dark"]`.
-- État vide explicite (« Aucun aboiement sur cette période »), pas de canvas blanc. Pas de
+- État vide explicite (« Aucun événement sur cette période »), pas de canvas blanc. Pas de
   flash de skeleton au rechargement : on garde le rendu précédent à opacité réduite.
   `prefers-reduced-motion` respecté.
 - **Aucun double axe nulle part.** Score (0–1) et comptage (0–N) ne partagent jamais un graphe.
 
 Tous les graphiques sont **mono-série**, donc le problème d'adjacence daltonienne ne se pose
-pas. **Si une deuxième série apparaît un jour** (par client, par type d'aboiement), cette
+pas. **Si une deuxième série apparaît un jour** (par client, par type d'événement), cette
 garantie tombe et la palette devra être validée avant livraison — à noter en commentaire dans
 le code pour que personne n'ajoute une seconde série à la légère.
 
@@ -867,7 +875,7 @@ Délibérément **absents** : `tensorflow`, `tensorflow-hub`, `tflite-runtime`, 
 > aux deux services.
 
 ```yaml
-name: aboigramme                    # le dossier s'appelle « noisy », on ne veut pas que ça
+name: noisygram                    # le dossier s'appelle « noisy », on ne veut pas que ça
                                     # fuie dans les noms de réseau/volume, ni collision
                                     # avec le projet « calendrier » en cours
 services:
@@ -875,9 +883,9 @@ services:
     image: postgres:15-alpine       # DÉJÀ EN CACHE sur l'hôte → pull gratuit
     # PAS DE `ports:` — voir §2.3, le 5432 de l'hôte est pris
     environment:
-      POSTGRES_USER: aboigramme
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-aboigramme_dev_pw}
-      POSTGRES_DB: aboigramme
+      POSTGRES_USER: noisygram
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-noisygram_dev_pw}
+      POSTGRES_DB: noisygram
       TZ: ${APP_TZ:-Europe/Paris}
       PGTZ: ${APP_TZ:-Europe/Paris}
     volumes: [pgdata:/var/lib/postgresql/data]
@@ -890,16 +898,16 @@ services:
 
   api:
     build: {context: ./backend}
-    image: aboigramme-api:latest
+    image: noisygram-api:latest
     depends_on:
       db: {condition: service_healthy}   # ← la garantie d'ordonnancement demandée
     environment:
-      DATABASE_URL: postgresql://aboigramme:${POSTGRES_PASSWORD:-aboigramme_dev_pw}@db:5432/aboigramme
+      DATABASE_URL: postgresql://noisygram:${POSTGRES_PASSWORD:-noisygram_dev_pw}@db:5432/noisygram
       MEDIA_DIR: /data/media
       MODEL_PATH: /app/models/yamnet.tflite
       CLASS_MAP_PATH: /app/models/yamnet_class_map.csv
       CLASSIFIER_BACKEND: yamnet_litert
-      BARK_THRESHOLD: ${BARK_THRESHOLD:-0.35}
+      NOISY_THRESHOLD: ${NOISY_THRESHOLD:-0.35}
       APP_TZ: ${APP_TZ:-Europe/Paris}
       TZ: ${APP_TZ:-Europe/Paris}
       SAVE_REJECTED: "false"
@@ -950,7 +958,7 @@ ASSETS = [
 ]
 out = pathlib.Path("/app/models"); out.mkdir(parents=True, exist_ok=True)
 for url, name, want in ASSETS:
-    req = urllib.request.Request(url, headers={"User-Agent": "aboigramme-build"})
+    req = urllib.request.Request(url, headers={"User-Agent": "noisygram-build"})
     data = urllib.request.urlopen(req, timeout=180).read()
     got = hashlib.sha256(data).hexdigest()
     if got != want:
@@ -992,8 +1000,8 @@ Chart.js est vendu de la même façon depuis
 7. **⭑ Test d'acceptation décisif : taper dans ses mains.** Un claquement est un transitoire
    large bande — la bonne forme, le mauvais contenu. Attendu : `accepted:false,
    reason:below_threshold`. Ça valide toute la chaîne **y compris le chemin de rejet**, sans
-   avoir besoin d'un chien.
-8. **Test positif** : jouer un enregistrement d'aboiement près du micro → `accepted:true`,
+   avoir besoin d'un événement.
+8. **Test positif** : jouer un enregistrement d'événement près du micro → `accepted:true`,
    `mp3_url` non nul, nouvelle ligne dans `/api/events`.
 9. `docker compose exec capture ls -la /data/media/$(date +%Y/%m/%d)/` → le MP3 est là.
 10. Dashboard sur `http://<ip>:4467/dashboard/` : le point apparaît sur la timeline, le clic
@@ -1001,12 +1009,12 @@ Chart.js est vendu de la même façon depuis
 11. **Soak 24 h** : `docker compose logs --since 24h capture | grep -c accepted`, et vérifier
     qu'aucun conteneur n'a redémarré.
 
-**Réglage du seuil** : `BARK_THRESHOLD=0.35` est un **point de départ, pas une vérité**. Les
+**Réglage du seuil** : `NOISY_THRESHOLD=0.35` est un **point de départ, pas une vérité**. Les
 scores YAMNet sont des sigmoïdes entraînées sur AudioSet, **pas des probabilités calibrées** —
-un « 0,87 Bark » n'est pas « 87 % de chances d'un aboiement » au sens fréquentiste. Le point de
-fonctionnement doit être réglé empiriquement contre *ce* microphone, *cette* clôture et *ces*
-chiens. Les colonnes `mean_bark_score` et `top_classes`, plus `SAVE_REJECTED=true`, sont les
-outils : monter vers 0,5 si les faux positifs dominent, descendre vers 0,2 si les aboiements
+un « 0,87 Bark » n'est pas « 87 % de chances d'un événement » au sens fréquentiste. Le point de
+fonctionnement doit être réglé empiriquement contre *ce* microphone, *cette* clôture et *ce*
+terrain. Les colonnes `mean_bark_score` et `top_classes`, plus `SAVE_REJECTED=true`, sont les
+outils : monter vers 0,5 si les faux positifs dominent, descendre vers 0,2 si les événements
 sont rejetés.
 
 ---
@@ -1100,9 +1108,9 @@ Conséquence : `set_tensor` avec une forme `(1, 15600)` échoue sur
 « Dimension mismatch. Got 2 but expected 1 ». L'implémentation ne code donc **aucune forme en
 dur** — elle lit celle du modèle et vérifie seulement que le produit fait 15 600.
 
-### 17.2 `Bark` est le pire discriminateur du groupe canin (§5.4)
+### 17.2 `Bark` est le pire discriminateur du groupe surveillé (§5.4)
 
-Mesuré sur 6 segments de 3 s de vrais aboiements du terrain, max sur les fenêtres :
+Mesuré sur 6 segments de 3 s de vrais événements du terrain, max sur les fenêtres :
 
 | classe | pire score | médiane |
 |---|---|---|
@@ -1110,11 +1118,11 @@ Mesuré sur 6 segments de 3 s de vrais aboiements du terrain, max sur les fenêt
 | `Dog` (69) | 0,586 | 0,801 |
 | `Animal` (67) | 0,586 | 0,871 |
 
-Le seuil de 0,35 laissait passer **2 vrais aboiements sur 6**. `Bark` est la seule classe du
-groupe qui plonge sous le seuil : elle est entraînée sur des aboiements proches et isolés,
+Le seuil de 0,35 laissait passer **2 vrais événements sur 6**. `Bark` est la seule classe du
+groupe qui plonge sous le seuil : elle est entraînée sur des événements proches et isolés,
 alors que ceux-ci sont lointains.
 
-Le score principal est donc le **max sur le groupe canin**, résolu **par nom** au chargement
+Le score principal est donc le **max sur le groupe surveillé**, résolu **par nom** au chargement
 (jamais par index). `Animal` est écarté **malgré sa séparation encore meilleure** : il
 réagirait aux chats et aux oiseaux, nombreux à la campagne.
 
@@ -1258,7 +1266,7 @@ Deux pièges qui n'ont pas de symptôme :
 contigus à ~9 ms près. On en avait déduit qu'un seuil de 3 ou 4 s suffisait à les chaîner.
 
 **C'est faux**, parce que la table ne contient que les événements **acceptés**. Un seul
-aboiement refusé au milieu d'une rafale — et le serveur en refuse la majorité, c'est tout
+événement refusé au milieu d'une rafale — et le serveur en refuse la majorité, c'est tout
 l'intérêt de décider avant d'encoder — laisse un trou de 6 s. Mesuré sur les données
 réelles : les événements 52→53 sont à **4,10 s**, donc un seuil de 4 s coupait la rafale
 52-53-54-55 en deux. Le défaut est à **7 s**, ce qui tolère exactement un refus, et il est
@@ -1268,7 +1276,7 @@ exposable en paramètre (`?gap_ms=`) pour être réglé sans redéploiement.
 
 `stormMax: 12` sur `stormWindowMs: 60000` : au-delà de 12 **déclenchements** dans la minute,
 le client suspend la capture 60 s. Comme le cooldown est de 3 s, cela faisait **36 s
-d'écoute puis 60 s de trou**, en boucle. Un chien qui aboie deux minutes n'était donc
+d'écoute puis 60 s de trou**, en boucle. Une source sonore de deux minutes n'était donc
 jamais enregistré d'un seul tenant — et aucune reconstitution côté serveur ne pouvait y
 remédier, l'audio n'ayant pas été capturé.
 
@@ -1296,7 +1304,7 @@ conviction trouée n'en est plus une.
 
 C'est une propriété du **déclenchement indépendant**, pas un défaut
 d'implémentation : aucun recollage ne peut être propre. D'où le passage au
-**flux continu** — le client streame tant que ça aboie, s'arrête après 30 s de
+**flux continu** — le client streame tant qu'il y a du bruit, s'arrête après 30 s de
 silence, et le serveur produit **un seul fichier**.
 
 ### 17.15 La queue de classement tronquait l'enregistrement
@@ -1331,20 +1339,20 @@ avec `reason = duplicate_seq`.
 
 ### 17.17 Sept requêtes auraient changé d'unité en silence
 
-Une ligne `events` était un aboiement ; c'en est désormais un **épisode**, qui
+Une ligne `events` était un événement ; c'en est désormais un **épisode**, qui
 peut en contenir des dizaines. Sept requêtes comptaient des lignes —
 `summary.count`, `count_prev_day`, `count_prev_week`, `histogram`, `daily`,
 `heatmap`, `timeline.total` — plus `events_since.count`. Sans rien faire, « 27
-aboiements » serait devenu « 2 » du jour au lendemain, sans erreur ni message.
+événements » serait devenu « 2 » du jour au lendemain, sans erreur ni message.
 
-D'où la colonne `bark_count`, qui compte les **rafales distinctes** et non les
+D'où la colonne `noisy_count`, qui compte les **rafales distinctes** et non les
 fenêtres : la fenêtre fait 975 ms avec un hop de 487 ms, donc deux fenêtres
-voisines se recouvrent à 50 % et un seul aboiement en allume deux ou trois. Une
+voisines se recouvrent à 50 % et un seul événement en allume deux ou trois. Une
 rafale ne commence que si le dépassement précédent date de plus de 500 ms.
 
 `DEFAULT 1` rend **toutes les lignes existantes correctes sans réécriture** :
-vérifié après migration, `count(*)` et `sum(bark_count)` valent 36 tous les deux.
-Les huit requêtes passent à `sum(bark_count)`.
+vérifié après migration, `count(*)` et `sum(noisy_count)` valent 36 tous les deux.
+Les huit requêtes passent à `sum(noisy_count)`.
 
 ### 17.18 La file d'attente perdait 80 % des segments après une coupure
 
@@ -1406,7 +1414,7 @@ par `if st.watchdog is not asyncio.current_task()` dans les deux finalisations.
   classification — réintroduirait un trou d'une seconde dans le direct à chaque analyse. Le
   commentaire est posé au-dessus de `publish()` pour que personne ne « l'optimise ».
 
-### 17.20 Une borne de volume jetait 132 secondes d'aboiements
+### 17.20 Une borne de volume jetait 132 secondes d'événements
 
 `max_stream_bytes` valait **4 194 304**, soit 131 s à 16 kHz s16le mono. Or
 `max_stream_ms` autorise **180 s**, qui en font 5 760 000. **La borne d'octets était donc
@@ -1432,7 +1440,7 @@ Deux fautes superposées, et la seconde est la vraie :
    durée.
 
 **Corollaire, trouvé en même temps** : sur un refus, le serveur renvoyait
-`Bilan(0.0, None, 0.0)` — donc le client écrivait « chien 0.000 » dans son journal, même
+`Bilan(0.0, None, 0.0)` — donc le client écrivait « noisy 0.000 » dans son journal, même
 pour un épisode qui avait frôlé le seuil. C'est le chiffre le plus utile pour régler le
 seuil, et on le remplaçait par zéro. Il porte maintenant le vrai maximum.
 
@@ -1482,7 +1490,7 @@ Deux erreurs de méthode, à ne pas refaire :
 ### 18.1 Le besoin, et pourquoi il a fallu un second chemin
 
 Le poste n'envoie rien tant qu'il n'a pas déclenché. C'est ce qui rend le système économe
-— et **aveugle** : « le chien est calme », « le micro est débranché » et « le seuil est mal
+— et **aveugle** : « l'ambiance est calme », « le micro est débranché » et « le seuil est mal
 réglé » se ressemblent. Pour savoir lequel, il fallait aller lire le journal sur le poste,
 c'est-à-dire sur la machine qu'on ne peut pas atteindre.
 
@@ -1509,10 +1517,10 @@ et faire dépendre la détection d'une machine Windows qui dort ou gèle serait 
 demande — les deux implémentés, aucun sélectionné.
 
 **Deux faiblesses de l'API externe, à ne pas reproduire** : son `/classify` fait la
-**moyenne** des scores (un aboiement de 3 s dans une minute de vent se dilue à ~5 % — c'est
+**moyenne** des scores (un événement de 3 s dans une minute de vent se dilue à ~5 % — c'est
 l'inverse de la décision du §5.4), et son `/analyze-timeline` fait un `argmax` par fenêtre,
-donc une fenêtre où `Dog` marque 0,40 et `Speech` 0,46 s'appelle `Speech` : **le chien
-disparaît**. D'où `dog_frames`, calculé séparément par max du groupe canin et surligné dans
+donc une fenêtre où `Dog` marque 0,40 et `Speech` 0,46 s'appelle `Speech` : **la source
+disparaît**. D'où `noisy_frames`, calculé séparément par max du groupe surveillé et surligné dans
 la modale.
 
 ### 18.3 L'interface est sur `noisy`, et elle RELAIE
@@ -1545,9 +1553,9 @@ Un lecteur **par table**, plus un dans la modale : **trois lecteurs, un seul son
 l'un démarre, les autres se coupent — deux pistes superposées sont incompréhensibles, et le
 même fichier joué des deux côtés ferait un écho.
 
-En fin d'écoute, si le YAMNet embarqué a trouvé du canin, l'écoute produit **aussi** une
+En fin d'écoute, si le YAMNet embarqué a trouvé du bruit, l'écoute produit **aussi** une
 ligne `events` et un MP3 : la détection n'est pas arrêtée pendant qu'on écoute, elle est
-**relocalisée**. Un vrai aboiement entendu pendant une écoute entre donc dans l'aboiegramme
+**relocalisée**. Un vrai événement entendu pendant une écoute entre donc dans le noisygram
 tout seul.
 
 ### 18.5 Ce que l'écoute enregistre, et ce qu'elle ne garde pas
@@ -1579,14 +1587,14 @@ tous pour les analyser lui-même, ce qui coûte 50 à 130 Mo par jour. Trois opt
 | `CLIENT_LISTEN_ENABLED` | true | Coupe le bouton côté poste |
 | `ANALYZE_BACKEND` | local | `local` = notre YAMNet, où qu'il soit ; `remote` = service HTTP |
 | `ANALYZE_REMOTE_URL` | — | Obligatoire si `remote` (multipart `file=@…`) |
-| `ANALYZE_TIMELINE_MIN_SCORE` | 0,3 | Seuil d'**affichage**, à ne pas confondre avec `DOG_THRESHOLD` qui **décide** |
+| `ANALYZE_TIMELINE_MIN_SCORE` | 0,3 | Seuil d'**affichage**, à ne pas confondre avec `NOISY_THRESHOLD` qui **décide** |
 | `CAPTURE_URL` | `http://capture:8000` | Pour les deux relais admin → capture |
 
 ### 18.7 Tests ajoutés
 
 | | |
 |---|---|
-| `app/tools/timelinetest.py` | La timeline, **sans modèle ni réseau** : fusion des fenêtres, chien vu malgré l'argmax, grille 0,4875 s |
+| `app/tools/timelinetest.py` | La timeline, **sans modèle ni réseau** : fusion des fenêtres, source vue malgré l'argmax, grille 0,4875 s |
 | `tests/static-wiring.test.js` | Le câblage de la modale, l'ordre des scripts, **l'absence de l'hôte privé** dans tout ce qui est servi |
 | `tests/worklet.test.js` | Le mode écoute du worklet : exclusivité avec l'épisode, morceau partiel, `rms` maintenues |
 

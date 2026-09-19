@@ -25,7 +25,7 @@ ASSETS = [
 models = pathlib.Path("/app/models"); models.mkdir(parents=True, exist_ok=True)
 vendor = pathlib.Path("/app/static/vendor"); vendor.mkdir(parents=True, exist_ok=True)
 for url, name, want in ASSETS:
-    req = urllib.request.Request(url, headers={"User-Agent": "aboigramme-build"})
+    req = urllib.request.Request(url, headers={"User-Agent": "noisygram-build"})
     data = urllib.request.urlopen(req, timeout=180).read()
     if want is not None:
         got = hashlib.sha256(data).hexdigest()

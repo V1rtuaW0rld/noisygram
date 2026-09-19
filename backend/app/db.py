@@ -35,16 +35,16 @@ CREATE TABLE IF NOT EXISTS schema_meta (
 
 CREATE TABLE IF NOT EXISTS events (
     id                 BIGSERIAL   PRIMARY KEY,
-    -- Instant serveur de l'aboiement : now() - post_roll, JAMAIS l'horloge du
+    -- Instant serveur de l'événement : now() - post_roll, JAMAIS l'horloge du
     -- client (G6). client_captured_at est stocké à part, en diagnostic.
     detected_at        TIMESTAMPTZ NOT NULL,
     received_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
     client_captured_at TIMESTAMPTZ,
     client_id          TEXT,
     client_seq         BIGINT,
-    dog_score          REAL        NOT NULL,
+    noisy_score        REAL        NOT NULL,
     bark_score         REAL,
-    mean_dog_score     REAL,
+    mean_noisy_score   REAL,
     duration_ms        INTEGER     NOT NULL,
     sample_rate        INTEGER     NOT NULL,
     mp3_path           TEXT        NOT NULL,
@@ -57,7 +57,7 @@ CREATE TABLE IF NOT EXISTS events (
     -- plusieurs minutes. La borne est un filet de sécurité, pas une vérité :
     -- l'app plafonne à `max_stream_ms` (3 min), et la marge laisse de quoi
     -- relever ce plafond sans migration.
-    bark_count      INTEGER     NOT NULL DEFAULT 1,
+    noisy_count     INTEGER     NOT NULL DEFAULT 1,
     -- Vrai si des fenêtres n'ont pas pu être classées (surcharge) : le score
     -- ne couvre alors qu'une partie de l'épisode, et il faut le DIRE plutôt
     -- que de laisser croire à une couverture totale.
@@ -67,17 +67,21 @@ CREATE TABLE IF NOT EXISTS events (
     wav_name        TEXT,
     qc_score        REAL,
     is_reference    BOOLEAN     NOT NULL DEFAULT FALSE,
-    CONSTRAINT events_dog_score_chk  CHECK (dog_score >= 0.0 AND dog_score <= 1.0),
-    CONSTRAINT events_bark_score_chk CHECK (bark_score IS NULL OR (bark_score >= 0.0 AND bark_score <= 1.0)),
-    CONSTRAINT events_duration_chk   CHECK (duration_ms BETWEEN 100 AND 300000),
-    CONSTRAINT events_rate_chk       CHECK (sample_rate BETWEEN 8000 AND 96000)
+    CONSTRAINT events_noisy_score_chk CHECK (noisy_score >= 0.0 AND noisy_score <= 1.0),
+    CONSTRAINT events_bark_score_chk  CHECK (bark_score IS NULL OR (bark_score >= 0.0 AND bark_score <= 1.0)),
+    CONSTRAINT events_duration_chk    CHECK (duration_ms BETWEEN 100 AND 300000),
+    CONSTRAINT events_rate_chk        CHECK (sample_rate BETWEEN 8000 AND 96000)
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS events_client_seq_uniq
     ON events (client_id, client_seq) WHERE client_seq IS NOT NULL;
 
 CREATE INDEX IF NOT EXISTS events_detected_at_desc ON events (detected_at DESC);
-CREATE INDEX IF NOT EXISTS events_dog_score_idx    ON events (dog_score DESC);
+
+-- ⚠️ L'index sur le score est créé par la MIGRATION 7, pas ici. Le DDL tourne
+-- AVANT les migrations (voir `lifespan`) : sur une base antérieure au
+-- renommage, la colonne s'appelle encore `dog_score` et un
+-- `CREATE INDEX ... (noisy_score)` échouerait, faisant tomber le démarrage.
 
 -- Reconstitution des rafales (GET /api/events/sequence) : la fenêtre chaîne les
 -- événements d'un MÊME client dans l'ordre du temps. Sans cet index, chaque
@@ -103,7 +107,7 @@ MIGRATIONS: dict[int, str] = {
     ALTER TABLE events DROP CONSTRAINT IF EXISTS events_duration_chk;
     ALTER TABLE events ADD  CONSTRAINT events_duration_chk
         CHECK (duration_ms BETWEEN 100 AND 300000);
-    ALTER TABLE events ADD COLUMN IF NOT EXISTS bark_count     INTEGER NOT NULL DEFAULT 1;
+    ALTER TABLE events ADD COLUMN IF NOT EXISTS noisy_count     INTEGER NOT NULL DEFAULT 1;
     ALTER TABLE events ADD COLUMN IF NOT EXISTS partial        BOOLEAN NOT NULL DEFAULT FALSE;
     ALTER TABLE events ADD COLUMN IF NOT EXISTS stopped_reason TEXT;
     ALTER TABLE events ADD COLUMN IF NOT EXISTS window_count   INTEGER;
@@ -142,6 +146,71 @@ MIGRATIONS: dict[int, str] = {
     );
     CREATE INDEX IF NOT EXISTS qc_snippets_event_id_idx ON qc_snippets(event_id);
     CREATE INDEX IF NOT EXISTS qc_snippets_wav_name_idx ON qc_snippets(wav_name);
+    """,
+    # 7 — Le schéma quitte le vocabulaire d'origine du projet : les colonnes
+    #     portaient encore `dog_*` alors qu'il qualifie du bruit générique.
+    #
+    #     ⚠️ Elle doit être CONDITIONNELLE, parce qu'elle s'applique à deux
+    #     bases de formes différentes :
+    #
+    #     • base antérieure — les colonnes s'appellent `dog_score`,
+    #       `mean_dog_score`, `bark_count` : on les renomme ;
+    #
+    #     • base NEUVE — le DDL ci-dessus les a déjà créées sous le nouveau nom,
+    #       MAIS la migration 2 est repassée derrière et a rajouté un
+    #       `bark_count` à côté du `noisy_count`, puisque `ADD COLUMN IF NOT
+    #       EXISTS` ne regarde que le nom qu'on lui donne. Cette colonne-là est
+    #       vide, sans emploi, et on la supprime.
+    #
+    #     Un `RENAME COLUMN` sec échouerait donc sur base neuve (« column
+    #     noisy_count already exists »), et un `DROP` sec détruirait la vraie
+    #     colonne sur base ancienne. D'où les tests d'existence.
+    7: """
+    DO $$
+    BEGIN
+        IF EXISTS (SELECT 1 FROM information_schema.columns
+                   WHERE table_schema = 'public' AND table_name = 'events'
+                     AND column_name = 'dog_score')
+           AND NOT EXISTS (SELECT 1 FROM information_schema.columns
+                   WHERE table_schema = 'public' AND table_name = 'events'
+                     AND column_name = 'noisy_score') THEN
+            ALTER TABLE events RENAME COLUMN dog_score TO noisy_score;
+        END IF;
+
+        IF EXISTS (SELECT 1 FROM information_schema.columns
+                   WHERE table_schema = 'public' AND table_name = 'events'
+                     AND column_name = 'mean_dog_score')
+           AND NOT EXISTS (SELECT 1 FROM information_schema.columns
+                   WHERE table_schema = 'public' AND table_name = 'events'
+                     AND column_name = 'mean_noisy_score') THEN
+            ALTER TABLE events RENAME COLUMN mean_dog_score TO mean_noisy_score;
+        END IF;
+
+        IF EXISTS (SELECT 1 FROM information_schema.columns
+                   WHERE table_schema = 'public' AND table_name = 'events'
+                     AND column_name = 'bark_count') THEN
+            IF EXISTS (SELECT 1 FROM information_schema.columns
+                       WHERE table_schema = 'public' AND table_name = 'events'
+                         AND column_name = 'noisy_count') THEN
+                ALTER TABLE events DROP COLUMN bark_count;
+            ELSE
+                ALTER TABLE events RENAME COLUMN bark_count TO noisy_count;
+            END IF;
+        END IF;
+
+        -- Les noms de contrainte et d'index survivent au RENAME COLUMN : la
+        -- définition suit la colonne, seule l'étiquette reste en arrière.
+        IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'events_dog_score_chk') THEN
+            ALTER TABLE events RENAME CONSTRAINT events_dog_score_chk
+                TO events_noisy_score_chk;
+        END IF;
+
+        IF EXISTS (SELECT 1 FROM pg_class WHERE relname = 'events_dog_score_idx') THEN
+            ALTER INDEX events_dog_score_idx RENAME TO events_noisy_score_idx;
+        END IF;
+    END $$;
+
+    CREATE INDEX IF NOT EXISTS events_noisy_score_idx ON events (noisy_score DESC);
     """,
 }
 

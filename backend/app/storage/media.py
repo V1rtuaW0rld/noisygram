@@ -1,7 +1,7 @@
 """Stockage des MP3 sur disque.
 
 Arborescence par date LOCALE (`APP_TZ`), pas UTC : c'est un humain qui ira
-regarder dans `/data/media/` pour retrouver l'aboiement de cette nuit, et il
+regarder dans `/data/media/` pour retrouver l'événement de cette nuit, et il
 cherchera au 17 septembre, pas au 16 à 22 h UTC. L'instant stocké en base, lui,
 reste en UTC — seule l'arborescence est locale, et elle n'est jamais qu'une
 commodité de rangement puisque le chemin exact est en base.

@@ -94,7 +94,7 @@ ERR_LISTEN_UNKNOWN = "listen_unknown"
 ERR_LISTEN_REFUSED = "listen_refused"
 
 # --- raisons d'acceptation / de refus, journalisées telles quelles ---
-REASON_OK = "dog_score_ok"
+REASON_OK = "noisy_score_ok"
 REASON_BELOW = "below_threshold"
 REASON_DUPLICATE = "duplicate_seq"
 REASON_MAX_DURATION = "max_duration"
@@ -158,7 +158,7 @@ def segment_result(
     mp3_url: str | None,
     mp3_bytes: int | None,
     reason: str,
-    bark_count: int | None = None,
+    noisy_count: int | None = None,
     partial: bool = False,
     stopped_reason: str | None = None,
     window_count: int | None = None,
@@ -168,12 +168,12 @@ def segment_result(
         "seq": seq,
         "event_id": event_id,
         "accepted": accepted,
-        # Le score principal est celui du GROUPE CANIN : c'est lui qui décide.
+        # Le score principal est celui du GROUPE SURVEILLÉ : c'est lui qui décide.
         # bark_score est joint en diagnostic, pour comparer les deux critères
         # sur des données réelles sans avoir à redéployer.
-        "dog_score": round(result.dog_score, 6),
+        "noisy_score": round(result.noisy_score, 6),
         "bark_score": None if result.bark_score is None else round(result.bark_score, 6),
-        "mean_dog_score": round(result.mean_dog_score, 6),
+        "mean_noisy_score": round(result.mean_noisy_score, 6),
         "threshold": threshold,
         "top_classes": result.top_classes,
         "duration_ms": duration_ms,
@@ -186,8 +186,8 @@ def segment_result(
     # Champs d'épisode. Absents sur le chemin segment, donc invisibles pour un
     # client ancien — c'est ce qui permet d'ajouter sans toucher à la version
     # du protocole.
-    if bark_count is not None:
-        msg["bark_count"] = bark_count
+    if noisy_count is not None:
+        msg["noisy_count"] = noisy_count
     if partial:
         msg["partial"] = True
     if stopped_reason is not None:
@@ -330,7 +330,7 @@ def listen_progress(
     *,
     received_ms: int,
     windows: int,
-    max_dog_score: float | None,
+    max_noisy_score: float | None,
     dropped_chunks: int,
     dropped_windows: int,
 ) -> dict[str, Any]:
@@ -344,7 +344,7 @@ def listen_progress(
         "type": T_LISTEN_PROGRESS,
         "received_ms": received_ms,
         "windows": windows,
-        "max_dog_score": None if max_dog_score is None else round(max_dog_score, 6),
+        "max_noisy_score": None if max_noisy_score is None else round(max_noisy_score, 6),
         "dropped_chunks": dropped_chunks,
         "dropped_windows": dropped_windows,
         "server_time_ms": now_ms(),
@@ -367,7 +367,7 @@ def listen_ended(
 ) -> dict[str, Any]:
     """Verdict terminal, TOUJOURS envoyé — quel que soit le chemin de sortie.
 
-    `analysis` porte le jugement du classifieur (score canin, classes du
+    `analysis` porte le jugement du classifieur (score principal, classes du
     dessus, densité) ; il est absent quand aucune fenêtre n'a pu être classée.
 
     `wav_name` peut être `None` : une écoute qui n'a reçu aucun échantillon ne

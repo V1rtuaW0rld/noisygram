@@ -70,9 +70,9 @@ async def health(request: Request) -> HealthOut:
         media_dir=media_state,
         media_writable=bool(writable),
         classifier_ready=ready,
-        dog_index=info.get("dog_index"),
+        noisy_index=info.get("noisy_index"),
         bark_index=info.get("bark_index"),
-        threshold=settings.dog_threshold,
+        threshold=settings.noisy_threshold,
         disk_free_bytes=media.free_bytes(media_dir),
         detail=" ; ".join(detail) if detail else None,
     )

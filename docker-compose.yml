@@ -1,4 +1,4 @@
-name: aboigramme                    # le dossier s'appelle « noisy », on ne veut pas que ça
+name: noisygram                    # le dossier s'appelle « noisy », on ne veut pas que ça
                                     # fuie dans les noms de réseau/volume, ni collision
                                     # avec le projet « calendrier » en cours
 
@@ -21,17 +21,17 @@ name: aboigramme                    # le dossier s'appelle « noisy », on ne ve
 
 x-api: &api-base
   build: {context: ./backend}
-  image: aboigramme-api:latest
+  image: noisygram-api:latest
   depends_on:
     db: {condition: service_healthy}   # ← la garantie d'ordonnancement demandée
   restart: unless-stopped
   environment: &api-env
-    DATABASE_URL: postgresql://aboigramme:${POSTGRES_PASSWORD:-aboigramme_dev_pw}@db:5432/aboigramme
+    DATABASE_URL: postgresql://noisygram:${POSTGRES_PASSWORD:-noisygram_dev_pw}@db:5432/noisygram
     MEDIA_DIR: /data/media
     MODEL_PATH: /app/models/yamnet.tflite
     CLASS_MAP_PATH: /app/models/yamnet_class_map.csv
     CLASSIFIER_BACKEND: yamnet_litert
-    DOG_THRESHOLD: ${DOG_THRESHOLD:-0.35}
+    NOISY_THRESHOLD: ${NOISY_THRESHOLD:-0.35}
     APP_TZ: ${APP_TZ:-Europe/Paris}
     TZ: ${APP_TZ:-Europe/Paris}
     SAVE_REJECTED: ${SAVE_REJECTED:-false}
@@ -82,9 +82,9 @@ services:
     # Publier le port ferait échouer `up` avec « address already in use »,
     # une erreur qui ressemble à un bug Postgres.
     environment:
-      POSTGRES_USER: aboigramme
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-aboigramme_dev_pw}
-      POSTGRES_DB: aboigramme
+      POSTGRES_USER: noisygram
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-noisygram_dev_pw}
+      POSTGRES_DB: noisygram
       TZ: ${APP_TZ:-Europe/Paris}
       PGTZ: ${APP_TZ:-Europe/Paris}
     volumes: [pgdata:/var/lib/postgresql/data]
@@ -138,7 +138,7 @@ services:
 
   qc:
     build: {context: ./docker/qc}
-    image: aboigramme-qc:latest
+    image: noisygram-qc:latest
     restart: unless-stopped
     ports: ["${HOST_PORT_QC:-8001}:8001"]
     volumes:

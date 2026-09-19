@@ -34,13 +34,17 @@ WINDOW_SAMPLES = 15_600
 HOP_SAMPLES = 7_800
 TOP_K = 5
 
-# Le groupe canin : toutes les classes YAMNet qui désignent un chien ou une
-# vocalise canine. Le score principal est le MAX sur ce groupe.
+# Le groupe surveillé : les classes YAMNet dont le MAX fait le score principal.
+#
+# ⚠️ Ces chaînes sont des libellés du class map du modèle, PAS du vocabulaire
+# du projet. Elles ne se traduisent pas et ne se renomment pas : `index()`
+# ci-dessous les résout par nom, et une seule lettre changée fait refuser le
+# chargement du modèle.
 #
 # « Whimper (dog) » porte la précision entre parenthèses dans le class map :
 # c'est le libellé exact, et il évite d'attraper un « Whimper » humain s'il
 # en existait un.
-DOG_CLASS_NAMES = (
+NOISY_CLASS_NAMES = (
     "Dog",
     "Bark",
     "Yip",
@@ -54,7 +58,7 @@ DOG_CLASS_NAMES = (
 # résolus par nom au chargement : un class map différent doit continuer à
 # fonctionner, pas planter.
 EXPECTED_BARK_INDEX = 70
-EXPECTED_DOG_INDEX = 69
+EXPECTED_NOISY_INDEX = 69
 
 PEAK_NORMALIZE_FLOOR = 0.1          # on ne touche à rien au-dessus
 PEAK_NORMALIZE_TARGET = 0.5
@@ -117,8 +121,8 @@ class YamnetLitertBackend(ClassifierBackend):
         self._output_index: int | None = None
         self._names: list[str] = []
         self._bark_index: int | None = None
-        self._dog_index: int | None = None
-        self._dog_indices: list[int] = []
+        self._noisy_index: int | None = None
+        self._noisy_indices: list[int] = []
         self._model_version: str | None = None
 
         # L'Interpreter LiteRT n'est PAS thread-safe : un seul thread à la
@@ -185,44 +189,44 @@ class YamnetLitertBackend(ClassifierBackend):
             # « Speech », pas « Animal » : une supposition ici décalerait tout.
             try:
                 self._bark_index = self._names.index("Bark")
-                self._dog_index = self._names.index("Dog")
+                self._noisy_index = self._names.index("Dog")
             except ValueError as exc:
                 raise ValueError(
                     "class map sans les classes 'Bark'/'Dog' — ce n'est pas le "
                     "yamnet_class_map.csv attendu"
                 ) from exc
 
-            if (self._bark_index, self._dog_index) != (
+            if (self._bark_index, self._noisy_index) != (
                 EXPECTED_BARK_INDEX,
-                EXPECTED_DOG_INDEX,
+                EXPECTED_NOISY_INDEX,
             ):
                 log.warning(
                     "indices Bark/Dog inattendus : %d/%d (référence %d/%d) — "
                     "on continue avec ceux du fichier",
                     self._bark_index,
-                    self._dog_index,
+                    self._noisy_index,
                     EXPECTED_BARK_INDEX,
-                    EXPECTED_DOG_INDEX,
+                    EXPECTED_NOISY_INDEX,
                 )
 
-            # Le groupe canin. Dog et Bark sont exigées juste au-dessus : la
+            # Le groupe surveillé. Dog et Bark sont exigées juste au-dessus : la
             # liste n'est donc jamais vide. Les cinq autres sont un bonus —
             # leur absence réduit le rappel sans casser quoi que ce soit.
-            for name in DOG_CLASS_NAMES:
+            for name in NOISY_CLASS_NAMES:
                 try:
-                    self._dog_indices.append(self._names.index(name))
+                    self._noisy_indices.append(self._names.index(name))
                 except ValueError:
                     log.warning(
-                        "classe canine absente du class map : %r — ignorée "
+                        "classe surveillée absente du class map : %r — ignorée "
                         "(la détection se poursuit sur les autres)",
                         name,
                     )
 
             log.info(
-                "YAMNet chargé : %d classes, groupe canin %s → indices %s, version=%s",
+                "YAMNet chargé : %d classes, groupe surveillé %s → indices %s, version=%s",
                 len(self._names),
-                list(DOG_CLASS_NAMES),
-                self._dog_indices,
+                list(NOISY_CLASS_NAMES),
+                self._noisy_indices,
                 self._model_version,
             )
 
@@ -246,8 +250,8 @@ class YamnetLitertBackend(ClassifierBackend):
         return self._bark_index
 
     @property
-    def dog_index(self) -> int:
-        return self._dog_index
+    def noisy_index(self) -> int:
+        return self._noisy_index
 
     @property
     def model_version(self) -> str | None:
@@ -257,8 +261,8 @@ class YamnetLitertBackend(ClassifierBackend):
         return {
             "backend": self.name,
             "model": self.model_path.name,
-            "dog_index": self._dog_index,
-            "dog_classes": [[i, self._names[i]] for i in self._dog_indices],
+            "noisy_index": self._noisy_index,
+            "noisy_classes": [[i, self._names[i]] for i in self._noisy_indices],
             "bark_index": self._bark_index,
             "threshold": self.threshold,
             "window_samples": WINDOW_SAMPLES,
@@ -331,17 +335,17 @@ class YamnetLitertBackend(ClassifierBackend):
                 self._interpreter.invoke()
                 scores[i] = self._interpreter.get_tensor(self._output_index).reshape(-1)
 
-        # MAX sur les fenêtres ET sur le groupe canin. C'est le score
+        # MAX sur les fenêtres ET sur le groupe surveillé. C'est le score
         # principal, celui sur lequel porte le seuil.
-        dog_per_window = scores[:, self._dog_indices].max(axis=1)
-        best_window = int(np.argmax(dog_per_window))
+        noisy_per_window = scores[:, self._noisy_indices].max(axis=1)
+        best_window = int(np.argmax(noisy_per_window))
 
-        dog = float(dog_per_window.max())
+        noisy = float(noisy_per_window.max())
         # Bark reste mesurée séparément, en diagnostic : c'est la colonne qui
         # permettra de vérifier après coup si le changement de critère était le
         # bon, sur des données réelles et non sur six segments.
         bark = float(scores[:, self._bark_index].max())
-        mean_dog = float(dog_per_window.mean())
+        mean_noisy = float(noisy_per_window.mean())
 
         # Le top-K est celui de la fenêtre qui a produit le score retenu : une
         # liste agrégée sur des fenêtres différentes ne décrirait rien de réel.
@@ -352,9 +356,9 @@ class YamnetLitertBackend(ClassifierBackend):
         ]
 
         return ClassificationResult(
-            dog_score=dog,
+            noisy_score=noisy,
             bark_score=bark,
-            mean_dog_score=mean_dog,
+            mean_noisy_score=mean_noisy,
             top_classes=top,
             backend=self.name,
             model_version=self._model_version,

@@ -1,18 +1,18 @@
 """Test du modèle SANS navigateur — le point d'arrêt du §11.3.
 
     docker compose exec api python -m app.tools.selftest
-    docker compose exec api python -m app.tools.selftest /data/mon_aboiement.wav
+    docker compose exec api python -m app.tools.selftest /data/mon_extrait.wav
     docker compose exec api python -m app.tools.selftest /data/brut.raw --rate 48000
 
 Sans argument, il vérifie la plomberie (fichiers, class map, fenêtrage,
 rééchantillonnage, latence) et passe des signaux synthétiques dont on connaît
 la réponse attendue. Il NE prétend PAS prouver que le modèle reconnaît un
-aboiement : un aboiement synthétique n'en est pas un.
+événement : un événement synthétique n'en est pas un.
 
 Avec un fichier en argument, il classe de VRAIS sons. C'est le seul mode qui
 réponde à la question « est-ce que ça marche ». Le test d'acceptation complet
 reste le claquement de mains (doit être refusé) puis un enregistrement
-d'aboiement (doit être accepté) — §13.
+d'événement (doit être accepté) — §13.
 """
 
 from __future__ import annotations
@@ -29,9 +29,9 @@ from ..audio.pcm import float32_to_pcm16, pcm16_to_float32, rms
 from ..audio.resample import TARGET_SR, resample_to_16k
 from ..audio.wav import read_wav_float32
 from ..classifier.yamnet_litert import (
-    DOG_CLASS_NAMES,
+    NOISY_CLASS_NAMES,
     EXPECTED_BARK_INDEX,
-    EXPECTED_DOG_INDEX,
+    EXPECTED_NOISY_INDEX,
     HOP_SAMPLES,
     WINDOW_SAMPLES,
     YamnetLitertBackend,
@@ -99,8 +99,8 @@ def sig_tone(freq=440.0, seconds=3.0, sr=TARGET_SR) -> np.ndarray:
 def sig_burst(seconds=3.0, sr=TARGET_SR) -> np.ndarray:
     """Transitoire large bande à décroissance rapide.
 
-    C'est la FORME d'un aboiement, pas son contenu : YAMNet ne doit pas
-    forcément y voir un chien, et ce test ne l'exige pas. Il sert à vérifier
+    C'est la FORME d'un événement, pas son contenu : YAMNet ne doit pas
+    forcément y voir un événement, et ce test ne l'exige pas. Il sert à vérifier
     qu'un signal impulsionnel traverse la chaîne sans la casser.
     """
     rng = np.random.default_rng(7)
@@ -108,7 +108,7 @@ def sig_burst(seconds=3.0, sr=TARGET_SR) -> np.ndarray:
     x = rng.standard_normal(n).astype(np.float32)
     spec = np.fft.rfft(x)
     freqs = np.fft.rfftfreq(n, 1 / sr)
-    spec[(freqs < 250) | (freqs > 3500)] = 0  # bande d'un aboiement
+    spec[(freqs < 250) | (freqs > 3500)] = 0  # bande d'un événement
     x = np.fft.irfft(spec, n).astype(np.float32)
 
     env = np.zeros(n, dtype=np.float32)
@@ -135,7 +135,7 @@ def classify_segments(
 
     C'est la reproduction fidèle de ce que fait le client : il n'envoie jamais
     18 s d'un coup, il envoie des extraits de 3 s. Classer le fichier entier
-    noierait un aboiement de 0,5 s dans 17,5 s de vent — ce que le MAX sur les
+    noierait un événement de 0,5 s dans 17,5 s de vent — ce que le MAX sur les
     fenêtres rattrape en partie, mais qui ne dit rien du comportement réel.
     """
     step = int(round(seconds * TARGET_SR))
@@ -146,11 +146,11 @@ def classify_segments(
 
     print(f"\n--- {len(chunks)} segments de {seconds:.2f} s (comme le client les envoie)")
     print(
-        f"    {'#':>3}  {'début':>7}  {'CHIEN':>6}  {'bark':>6}  {'moy':>6}  "
+        f"    {'#':>3}  {'début':>7}  {'NOISY':>6}  {'bark':>6}  {'moy':>6}  "
         f"{'classe dominante':<26} {'score':>5}  verdict"
     )
     print(
-        "    (CHIEN = score principal, max du groupe canin — c'est lui qui décide.\n"
+        "    (NOISY = score principal, max du groupe surveillé — c'est lui qui décide.\n"
         "     bark = la classe Bark seule, en diagnostic.)"
     )
 
@@ -159,22 +159,22 @@ def classify_segments(
     accepted = 0
     for i, chunk in enumerate(chunks):
         r = backend.classify(chunk)
-        scores.append(r.dog_score)
+        scores.append(r.noisy_score)
         barks.append(r.bark_score or 0.0)
-        if r.dog_score >= backend.threshold:
+        if r.noisy_score >= backend.threshold:
             accepted += 1
         top = r.top_classes[0] if r.top_classes else ("?", -1, 0.0)
-        verdict = "ACCEPTÉ" if r.dog_score >= backend.threshold else "refusé"
+        verdict = "ACCEPTÉ" if r.noisy_score >= backend.threshold else "refusé"
         print(
-            f"    {i:>3}  {i * seconds:>6.1f}s  {r.dog_score:>6.3f}  "
-            f"{(r.bark_score or 0.0):>6.3f}  {r.mean_dog_score:>6.3f}  "
+            f"    {i:>3}  {i * seconds:>6.1f}s  {r.noisy_score:>6.3f}  "
+            f"{(r.bark_score or 0.0):>6.3f}  {r.mean_noisy_score:>6.3f}  "
             f"{top[0][:26]:<26} {top[2]:>5.2f}  {verdict}"
         )
 
     arr = np.asarray(scores, dtype=np.float64)
     bark_arr = np.asarray(barks, dtype=np.float64)
     print(
-        f"\n    chien : min {arr.min():.3f} | médiane {np.median(arr):.3f} | "
+        f"\n    noisy : min {arr.min():.3f} | médiane {np.median(arr):.3f} | "
         f"p90 {np.percentile(arr, 90):.3f} | max {arr.max():.3f}"
     )
     print(
@@ -197,12 +197,12 @@ def classify_segments(
     if accepted == len(chunks):
         print(
             "\n    ⚠ TOUS les segments passent : ce fichier ne contient que des "
-            "aboiements.\n"
+            "événements.\n"
             "      Il prouve que la détection marche, il ne prouve PAS que le "
             "seuil\n"
             "      écarte les faux positifs. Pour ça il faut un enregistrement "
             "de\n"
-            "      fond sonore SANS chien (vent, rue, oiseaux) et le même test."
+            "      fond sonore SANS source (vent, rue, oiseaux) et le même test."
         )
     return scores
 
@@ -218,13 +218,13 @@ def classify_file(backend: YamnetLitertBackend, x: np.ndarray, sr: int, label: s
     )
     result = backend.classify(x16)
     print(
-        f"    {result.windows} fenêtre(s) | chien={result.dog_score:.3f} "
-        f"bark={(result.bark_score or 0.0):.3f} moyen={result.mean_dog_score:.3f} "
+        f"    {result.windows} fenêtre(s) | noisy={result.noisy_score:.3f} "
+        f"bark={(result.bark_score or 0.0):.3f} moyen={result.mean_noisy_score:.3f} "
         f"| {result.processing_ms:.0f} ms"
     )
     verdict = (
         "ACCEPTÉ"
-        if result.dog_score >= backend.threshold
+        if result.noisy_score >= backend.threshold
         else "refusé (sous le seuil)"
     )
     print(f"    seuil {backend.threshold:.2f} → {verdict}")
@@ -260,7 +260,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     print("=" * 72)
-    print("  Aboigramme — test du pipeline sans navigateur")
+    print("  Noisygram — test du pipeline sans navigateur")
     print("=" * 72)
 
     # -- 1. Fichiers de modèle -------------------------------------------
@@ -307,15 +307,15 @@ def main(argv: list[str] | None = None) -> int:
         check(
             "Bark/Dog résolus par NOM",
             names.index("Bark") == EXPECTED_BARK_INDEX
-            and names.index("Dog") == EXPECTED_DOG_INDEX,
+            and names.index("Dog") == EXPECTED_NOISY_INDEX,
             f"Bark={names.index('Bark')} Dog={names.index('Dog')} "
-            f"(référence {EXPECTED_BARK_INDEX}/{EXPECTED_DOG_INDEX})",
+            f"(référence {EXPECTED_BARK_INDEX}/{EXPECTED_NOISY_INDEX})",
         )
-        missing = [n for n in DOG_CLASS_NAMES if n not in names]
+        missing = [n for n in NOISY_CLASS_NAMES if n not in names]
         check(
-            "les 7 classes du groupe canin sont présentes",
+            "les 7 classes du groupe surveillé sont présentes",
             not missing,
-            f"absentes : {missing}" if missing else ", ".join(DOG_CLASS_NAMES),
+            f"absentes : {missing}" if missing else ", ".join(NOISY_CLASS_NAMES),
         )
     except Exception as exc:  # noqa: BLE001 — on veut le rapport, pas la stack
         check("lecture du class map", False, repr(exc))
@@ -369,7 +369,7 @@ def main(argv: list[str] | None = None) -> int:
     backend = YamnetLitertBackend(
         model_path=settings.model_path,
         class_map_path=settings.class_map_path,
-        threshold=settings.dog_threshold,
+        threshold=settings.noisy_threshold,
         peak_normalize=settings.peak_normalize,
     )
     try:
@@ -430,7 +430,7 @@ def main(argv: list[str] | None = None) -> int:
     # -- 7. Signaux synthétiques ------------------------------------------
     print("\n■ Signaux synthétiques 3 s @ 16 kHz")
     print(
-        "   (le burst imite la FORME d'un aboiement, pas son contenu :\n"
+        "   (le burst imite la FORME d'un événement, pas son contenu :\n"
         "    on n'exige rien de lui, il vérifie seulement que ça ne casse pas)"
     )
 
@@ -448,19 +448,19 @@ def main(argv: list[str] | None = None) -> int:
     sil = results["silence"]
     noise = results["bruit blanc -20 dBFS"]
     check(
-        "silence → score chien quasi nul",
-        sil.dog_score < 0.05,
-        f"chien={sil.dog_score:.4f}",
+        "silence → score quasi nul",
+        sil.noisy_score < 0.05,
+        f"noisy={sil.noisy_score:.4f}",
     )
     check(
-        "bruit blanc → score chien sous le seuil",
-        noise.dog_score < backend.threshold,
-        f"chien={noise.dog_score:.4f} (seuil {backend.threshold})",
+        "bruit blanc → score sous le seuil",
+        noise.noisy_score < backend.threshold,
+        f"noisy={noise.noisy_score:.4f} (seuil {backend.threshold})",
     )
 
     all_results = list(results.items())
     finite = all(
-        np.isfinite(r.dog_score) and 0.0 <= r.dog_score <= 1.0 for _, r in all_results
+        np.isfinite(r.noisy_score) and 0.0 <= r.noisy_score <= 1.0 for _, r in all_results
     )
     check("tous les scores finis et dans [0,1]", finite)
 
@@ -473,10 +473,10 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     print(
-        "\n⚠ Ce test ne prouve PAS la détection d'aboiement. Pour ça, il faut un "
+        "\n⚠ Ce test ne prouve PAS la détection d'événement. Pour ça, il faut un "
         "VRAI son :\n"
-        "    docker compose cp aboiement.wav api:/data/\n"
-        "    docker compose exec api python -m app.tools.selftest /data/aboiement.wav"
+        "    docker compose cp extrait.wav api:/data/\n"
+        "    docker compose exec api python -m app.tools.selftest /data/extrait.wav"
     )
 
     backend.close()

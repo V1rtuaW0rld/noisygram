@@ -36,7 +36,7 @@ from ..schemas import ClientHello, ClientPing, ListenEnd, ListenStart, SegmentSt
 from ..storage import media, ondemand
 from . import protocol as P
 from .hub import ListenHub, ListenInfo
-from .stream import Bilan, EpisodeWriter, StreamState, WindowScorer, compter_aboiements
+from .stream import Bilan, EpisodeWriter, StreamState, WindowScorer, compter_evenements
 
 log = logging.getLogger(__name__)
 
@@ -46,7 +46,7 @@ log = logging.getLogger(__name__)
 FILE_FENETRES = 8
 
 # Contexte gardé de part et d'autre de la première et de la dernière fenêtre
-# retenue. Assez pour entendre l'aboiement arriver et repartir, pas assez pour
+# retenue. Assez pour entendre l'événement arriver et repartir, pas assez pour
 # garder du vide.
 ROGNAGE_TETE_MS = 1500
 ROGNAGE_QUEUE_MS = 1000
@@ -66,9 +66,9 @@ LISTEN_ACK_TIMEOUT_S = 5.0
 EPISODE_INSERT_SQL = """
 INSERT INTO events (
     id, detected_at, received_at, client_captured_at, client_id, client_seq,
-    dog_score, bark_score, mean_dog_score, duration_ms, sample_rate,
+    noisy_score, bark_score, mean_noisy_score, duration_ms, sample_rate,
     mp3_path, mp3_bytes, backend, model_version, top_classes,
-    bark_count, partial, stopped_reason, window_count, wav_name, qc_score, qc_valid
+    noisy_count, partial, stopped_reason, window_count, wav_name, qc_score, qc_valid
 ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)
 ON CONFLICT (client_id, client_seq) WHERE client_seq IS NOT NULL DO NOTHING
 RETURNING id
@@ -82,7 +82,7 @@ RETURNING id
 INSERT_SQL = """
 INSERT INTO events (
     id, detected_at, received_at, client_captured_at, client_id, client_seq,
-    dog_score, bark_score, mean_dog_score, duration_ms, sample_rate,
+    noisy_score, bark_score, mean_noisy_score, duration_ms, sample_rate,
     mp3_path, mp3_bytes, backend, model_version, top_classes
 ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
 ON CONFLICT (client_id, client_seq) WHERE client_seq IS NOT NULL DO NOTHING
@@ -550,7 +550,7 @@ class ConnectionSession:
         # secondes, là où un journal ne répond pas du tout.
         debugdump.dump(
             x16,
-            f"seg{seg.seq}_score{result.dog_score:.3f}_{seg.sample_rate}Hz",
+            f"seg{seg.seq}_score{result.noisy_score:.3f}_{seg.sample_rate}Hz",
             self.settings.debug_dump_dir,
             self.settings.debug_dump,
             self.settings.debug_dump_keep,
@@ -563,7 +563,7 @@ class ConnectionSession:
         detected_at = received_at - timedelta(milliseconds=post_roll_ms)
         duration_ms = round(seg.num_samples / seg.sample_rate * 1000)
 
-        accepted = result.dog_score >= s.dog_threshold
+        accepted = result.noisy_score >= s.noisy_threshold
 
         if not accepted:
             if s.save_rejected:
@@ -579,7 +579,7 @@ class ConnectionSession:
                     event_id=None,
                     accepted=False,
                     result=result,
-                    threshold=s.dog_threshold,
+                    threshold=s.noisy_threshold,
                     duration_ms=duration_ms,
                     mp3_url=None,
                     mp3_bytes=None,
@@ -604,7 +604,7 @@ class ConnectionSession:
                 event_id=event_id,
                 accepted=True,
                 result=result,
-                threshold=s.dog_threshold,
+                threshold=s.noisy_threshold,
                 duration_ms=duration_ms,
                 mp3_url=media.url_for(mp3_rel),
                 mp3_bytes=mp3_bytes,
@@ -708,7 +708,7 @@ class ConnectionSession:
                         event_id=existant["id"],
                         accepted=True,
                         result=Bilan(0.0, None, 0.0),
-                        threshold=s.dog_threshold,
+                        threshold=s.noisy_threshold,
                         duration_ms=0,
                         mp3_url=media.url_for(existant["mp3_path"]),
                         mp3_bytes=existant["mp3_bytes"],
@@ -784,9 +784,9 @@ class ConnectionSession:
         #
         # Elle était traitée comme une borne de sécurité, donc `_abort_stream`,
         # donc le spool détruit. C'était faux : dépasser un volume ne dit RIEN
-        # de la qualité de l'audio. Un chien qui aboie deux minutes produit un
+        # de la qualité de l'audio. Une source qui dure deux minutes produit un
         # épisode long, parfaitement légitime — et il était jeté. Mesuré sur le
-        # terrain : 132 s d'aboiements perdus d'un coup.
+        # terrain : 132 s d'audio perdus d'un coup.
         #
         # Seul ce qui est MALFORMÉ mérite d'être jeté (`_abort_stream` plus
         # haut, sur une longueur impaire ou un morceau démesuré) : là, oui, on
@@ -855,7 +855,7 @@ class ConnectionSession:
                 log.exception("classification d'une fenêtre d'épisode")
                 st.dropped += 1
                 continue
-            st.scores.append(r.dog_score)
+            st.scores.append(r.noisy_score)
             st.barks.append(r.bark_score or 0.0)
             st.offsets.append(offset)
 
@@ -946,7 +946,7 @@ class ConnectionSession:
             st.watchdog.cancel()
 
         # Laisser la file se vider AVANT de juger : sinon on déciderait sur les
-        # seules fenêtres déjà classées et on jetterait de vrais aboiements.
+        # seules fenêtres déjà classées et on jetterait de vrais événements.
         if st.task:
             try:
                 st.queue.put_nowait(None)
@@ -987,7 +987,7 @@ class ConnectionSession:
             except Exception:  # noqa: BLE001
                 log.warning("dump de l'épisode %s impossible", st.seq)
 
-        seuil = self.settings.dog_threshold
+        seuil = self.settings.noisy_threshold
         bornes = st.bornes_retenues(seuil)
 
         if bornes is None:
@@ -1022,7 +1022,7 @@ class ConnectionSession:
                         seuil,
                         origine="refused",
                         wav_name=wav_nom,
-                        aboiements_force=0,
+                        evenements_force=0,
                     )
                 except Exception as exc:  # noqa: BLE001
                     log.exception("stockage de l'épisode refusé %s : %r", st.seq, exc)
@@ -1038,9 +1038,9 @@ class ConnectionSession:
                     event_id=resultat["event_id"] if resultat else None,
                     accepted=False,
                     result=Bilan(
-                        dog_score=max(st.scores) if st.scores else 0.0,
+                        noisy_score=max(st.scores) if st.scores else 0.0,
                         bark_score=max(st.barks) if st.barks else None,
-                        mean_dog_score=(
+                        mean_noisy_score=(
                             sum(st.scores) / len(st.scores) if st.scores else 0.0
                         ),
                     ),
@@ -1049,7 +1049,7 @@ class ConnectionSession:
                     mp3_url=resultat["mp3_url"] if resultat else None,
                     mp3_bytes=resultat["mp3_bytes"] if resultat else None,
                     reason=P.REASON_BELOW,
-                    bark_count=0,
+                    noisy_count=0,
                     window_count=len(st.scores),
                 )
             )
@@ -1080,7 +1080,7 @@ class ConnectionSession:
         qc_score = None
         qc_valid = None
         origine = "episode"
-        aboiements_force = None
+        evenements_force = None
         accepted_status = True
         reason_status = P.REASON_OK
 
@@ -1100,7 +1100,7 @@ class ConnectionSession:
                             st.seq, qc_pct, req_thresh, duration_ms,
                         )
                         origine = "refused"
-                        aboiements_force = 0
+                        evenements_force = 0
                         accepted_status = False
                         reason_status = P.REASON_BELOW
                     else:
@@ -1122,7 +1122,7 @@ class ConnectionSession:
                 seuil,
                 origine=origine,
                 wav_name=wav_nom,
-                aboiements_force=aboiements_force,
+                evenements_force=evenements_force,
                 qc_score=qc_score,
                 qc_valid=qc_valid,
             )
@@ -1148,7 +1148,7 @@ class ConnectionSession:
                     mp3_url=resultat["mp3_url"],
                     mp3_bytes=resultat["mp3_bytes"],
                     reason=reason_status,
-                    bark_count=resultat["aboiements"],
+                    noisy_count=resultat["événements"],
                     partial=resultat["partial"],
                     stopped_reason=raison,
                     window_count=resultat["windows"],
@@ -1183,7 +1183,7 @@ class ConnectionSession:
         *,
         origine: str = "episode",
         wav_name: str | None = None,
-        aboiements_force: int | None = None,
+        evenements_force: int | None = None,
         qc_score: float | None = None,
         qc_valid: bool | None = None,
     ) -> dict | None:
@@ -1215,14 +1215,14 @@ class ConnectionSession:
         mp3_bytes = media.write_bytes(s.media_dir, relpath, mp3)
 
         bilan = Bilan(
-            dog_score=max(st.scores) if st.scores else 0.0,
+            noisy_score=max(st.scores) if st.scores else 0.0,
             bark_score=max(st.barks) if st.barks else None,
-            mean_dog_score=sum(st.scores) / len(st.scores) if st.scores else 0.0,
+            mean_noisy_score=sum(st.scores) / len(st.scores) if st.scores else 0.0,
         )
-        aboiements = (
-            aboiements_force
-            if aboiements_force is not None
-            else compter_aboiements(st.scores, st.offsets, seuil, st.sample_rate)
+        événements = (
+            evenements_force
+            if evenements_force is not None
+            else compter_evenements(st.scores, st.offsets, seuil, st.sample_rate)
         )
 
         row = await db.fetchrow(
@@ -1233,9 +1233,9 @@ class ConnectionSession:
             _captured_at_utc(None),
             self.client_id,
             st.seq,
-            bilan.dog_score,
+            bilan.noisy_score,
             bilan.bark_score,
-            bilan.mean_dog_score,
+            bilan.mean_noisy_score,
             duration_ms,
             st.sample_rate,
             relpath,
@@ -1243,7 +1243,7 @@ class ConnectionSession:
             f"{origine}/{raison}",
             None,
             None,
-            aboiements,
+            événements,
             st.dropped > 0,
             raison,
             len(st.scores),
@@ -1265,7 +1265,7 @@ class ConnectionSession:
             "mp3_url": media.url_for(relpath),
             "mp3_bytes": mp3_bytes,
             "duration_ms": duration_ms,
-            "aboiements": aboiements,
+            "événements": événements,
             "partial": st.dropped > 0,
             "windows": len(st.scores),
             "detected_at": detected_at,
@@ -1301,7 +1301,7 @@ class ConnectionSession:
         # couper : l'épisode est jugé et archivé normalement sur l'audio reçu
         # jusque-là.
         #
-        # Refuser serait le pire des deux mondes : c'est quand ça aboie qu'on a
+        # Refuser serait le pire des deux mondes : c'est quand ça détecte qu'on a
         # envie d'écouter, et sur un terrain actif un épisode est ouvert la
         # quasi-totalité du temps.
         #
@@ -1613,7 +1613,7 @@ class ConnectionSession:
                         P.listen_progress(
                             received_ms=st.duree_ms,
                             windows=len(st.scores),
-                            max_dog_score=max(st.scores) if st.scores else None,
+                            max_noisy_score=max(st.scores) if st.scores else None,
                             dropped_chunks=self.hub.dropped_chunks,
                             dropped_windows=st.dropped,
                         )
@@ -1660,7 +1660,7 @@ class ConnectionSession:
         chemin = st.writer.finalize()
         nom = chemin.name if chemin is not None else None
 
-        seuil = self.settings.dog_threshold
+        seuil = self.settings.noisy_threshold
         resultat = None
         bornes = st.bornes_retenues(seuil) if chemin is not None else None
 
@@ -1737,20 +1737,20 @@ class ConnectionSession:
 
         La DENSITÉ (fenêtres retenues / fenêtres totales) est là et pas
         seulement le score max : une écoute rognée sur [première fenêtre
-        canine, dernière] peut faire 55 s contenant un aboiement à la seconde 3
+        retenue, dernière] peut faire 55 s contenant un événement à la seconde 3
         et un autre à la 58, avec 55 s de vent au milieu. Un « 0,81 » seul
         laisserait croire à une scène bruyante.
         """
         retenues = sum(1 for s in st.scores if s >= seuil)
         return {
-            "dog_score": max(st.scores) if st.scores else None,
+            "noisy_score": max(st.scores) if st.scores else None,
             "bark_score": max(st.barks) if st.barks else None,
-            "mean_dog_score": (sum(st.scores) / len(st.scores)) if st.scores else None,
+            "mean_noisy_score": (sum(st.scores) / len(st.scores)) if st.scores else None,
             "threshold": seuil,
             "windows": len(st.scores),
             "windows_retenues": retenues,
             "scores": [
-                {"offset_ms": round(o / st.sample_rate * 1000), "dog": round(s, 6)}
+                {"offset_ms": round(o / st.sample_rate * 1000), "noisy": round(s, 6)}
                 for o, s in zip(st.offsets, st.scores)
             ],
             "event_id": resultat["event_id"] if resultat else None,
@@ -1817,9 +1817,9 @@ class ConnectionSession:
             _captured_at_utc(seg.captured_at_ms),
             self.client_id,
             seg.seq,
-            result.dog_score,
+            result.noisy_score,
             result.bark_score,
-            result.mean_dog_score,
+            result.mean_noisy_score,
             duration_ms,
             seg.sample_rate,
             relpath,
@@ -1834,7 +1834,7 @@ class ConnectionSession:
                 "événement %d accepté (seq=%d, score=%.3f, bark=%.3f, %s, %d o)",
                 event_id,
                 seg.seq,
-                result.dog_score,
+                result.noisy_score,
                 result.bark_score or 0.0,
                 relpath,
                 mp3_bytes,

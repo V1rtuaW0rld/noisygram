@@ -54,20 +54,20 @@ async def summary(
 
     row = await db.fetchrow(
         """
-        -- sum(bark_count) et NON count(*) : une ligne n'est plus un aboiement
+        -- sum(noisy_count) et NON count(*) : une ligne n'est plus un événement
         -- mais un ÉPISODE, qui peut en contenir des dizaines. Compter les
-        -- lignes ferait passer « 27 aboiements » à « 2 » du jour au lendemain,
+        -- lignes ferait passer « 27 événements » à « 2 » du jour au lendemain,
         -- sans qu'aucun test ni aucun message ne le signale. Les lignes
-        -- antérieures portent bark_count = 1 par défaut, donc l'historique
+        -- antérieures portent noisy_count = 1 par défaut, donc l'historique
         -- reste comparable.
-        SELECT coalesce(sum(bark_count), 0) AS count,
-               max(dog_score)    AS max_score,
-               avg(dog_score)    AS mean_score,
+        SELECT coalesce(sum(noisy_count), 0) AS count,
+               max(noisy_score)    AS max_score,
+               avg(noisy_score)    AS mean_score,
                min(detected_at)  AS first_at,
                max(detected_at)  AS last_at
         FROM events
         WHERE (detected_at AT TIME ZONE $1)::date = $2::date
-          AND coalesce(bark_count, 0) > 0
+          AND coalesce(noisy_count, 0) > 0
           AND (qc_valid IS NULL OR qc_valid = TRUE)
         """,
         _tz(tz),
@@ -86,12 +86,12 @@ async def summary(
         heures = 24.0
 
     veille = await db.fetchval(
-        "SELECT coalesce(sum(bark_count), 0) FROM events WHERE (detected_at AT TIME ZONE $1)::date = $2::date AND coalesce(bark_count, 0) > 0 AND (qc_valid IS NULL OR qc_valid = TRUE)",
+        "SELECT coalesce(sum(noisy_count), 0) FROM events WHERE (detected_at AT TIME ZONE $1)::date = $2::date AND coalesce(noisy_count, 0) > 0 AND (qc_valid IS NULL OR qc_valid = TRUE)",
         _tz(tz),
         jour - timedelta(days=1),
     )
     semaine = await db.fetchval(
-        "SELECT coalesce(sum(bark_count), 0) FROM events WHERE (detected_at AT TIME ZONE $1)::date = $2::date AND coalesce(bark_count, 0) > 0 AND (qc_valid IS NULL OR qc_valid = TRUE)",
+        "SELECT coalesce(sum(noisy_count), 0) FROM events WHERE (detected_at AT TIME ZONE $1)::date = $2::date AND coalesce(noisy_count, 0) > 0 AND (qc_valid IS NULL OR qc_valid = TRUE)",
         _tz(tz),
         jour - timedelta(days=7),
     )
@@ -103,8 +103,8 @@ async def summary(
         count=count,
         hours_elapsed=round(heures, 3),
         per_hour=round(count / heures, 3) if heures > 0 else 0.0,
-        max_dog_score=row["max_score"],
-        mean_dog_score=row["mean_score"],
+        max_noisy_score=row["max_score"],
+        mean_noisy_score=row["mean_score"],
         first_detected_at=row["first_at"],
         last_detected_at=row["last_at"],
         count_prev_day=veille or 0,
@@ -125,10 +125,10 @@ async def histogram(
     rows = await db.fetch(
         """
         SELECT extract(hour FROM (detected_at AT TIME ZONE $3))::int AS hour,
-               coalesce(sum(bark_count), 0) AS count
+               coalesce(sum(noisy_count), 0) AS count
         FROM events
         WHERE detected_at >= $1 AND detected_at < $2
-          AND coalesce(bark_count, 0) > 0
+          AND coalesce(noisy_count, 0) > 0
           AND (qc_valid IS NULL OR qc_valid = TRUE)
         GROUP BY 1
         """,
@@ -159,7 +159,7 @@ async def daily(
 
     rows = await db.fetch(
         """
-        SELECT d::date AS date, coalesce(sum(e.bark_count), 0) AS count
+        SELECT d::date AS date, coalesce(sum(e.noisy_count), 0) AS count
         FROM generate_series(
                  ($1 AT TIME ZONE $3)::date,
                  ($2 AT TIME ZONE $3)::date,
@@ -167,7 +167,7 @@ async def daily(
              ) d
         LEFT JOIN events e
                ON (e.detected_at AT TIME ZONE $3)::date = d::date
-              AND coalesce(e.bark_count, 0) > 0
+              AND coalesce(e.noisy_count, 0) > 0
               AND (e.qc_valid IS NULL OR e.qc_valid = TRUE)
         GROUP BY d
         ORDER BY d
@@ -197,10 +197,10 @@ async def heatmap(
         """
         SELECT extract(isodow FROM (detected_at AT TIME ZONE $3))::int AS dow,
                extract(hour   FROM (detected_at AT TIME ZONE $3))::int AS hour,
-               coalesce(sum(bark_count), 0) AS count
+               coalesce(sum(noisy_count), 0) AS count
         FROM events
         WHERE detected_at >= $1 AND detected_at < $2
-          AND coalesce(bark_count, 0) > 0
+          AND coalesce(noisy_count, 0) > 0
           AND (qc_valid IS NULL OR qc_valid = TRUE)
         GROUP BY 1, 2
         """,
@@ -230,7 +230,7 @@ async def timeline(
     end = aware(to, now)
 
     total = await db.fetchval(
-        "SELECT coalesce(sum(bark_count), 0) FROM events WHERE detected_at >= $1 AND detected_at < $2 AND coalesce(bark_count, 0) > 0 AND (qc_valid IS NULL OR qc_valid = TRUE)",
+        "SELECT coalesce(sum(noisy_count), 0) FROM events WHERE detected_at >= $1 AND detected_at < $2 AND coalesce(noisy_count, 0) > 0 AND (qc_valid IS NULL OR qc_valid = TRUE)",
         start,
         end,
     )
@@ -238,12 +238,12 @@ async def timeline(
         """
         SELECT id,
                (extract(epoch FROM detected_at) * 1000)::bigint AS t,
-               dog_score
+               noisy_score
         FROM events
         WHERE detected_at >= $1 AND detected_at < $2
-          AND coalesce(bark_count, 0) > 0
+          AND coalesce(noisy_count, 0) > 0
           AND (qc_valid IS NULL OR qc_valid = TRUE)
-        ORDER BY dog_score DESC
+        ORDER BY noisy_score DESC
         LIMIT $3
         """,
         start,
@@ -254,13 +254,13 @@ async def timeline(
     # Renvoyer les N premiers chronologiquement n'afficherait que janvier et
     # laisserait croire que le reste de l'année est vide (§8).
     points = sorted(
-        (TimelinePoint(id=r["id"], t=int(r["t"]), score=float(r["dog_score"])) for r in rows),
+        (TimelinePoint(id=r["id"], t=int(r["t"]), score=float(r["noisy_score"])) for r in rows),
         key=lambda p: p.t,
     )
     truncated = False
     if len(rows) == max_points:
         nb_episodes = await db.fetchval(
-            "SELECT count(*) FROM events WHERE detected_at >= $1 AND detected_at < $2 AND coalesce(bark_count, 0) > 0 AND (qc_valid IS NULL OR qc_valid = TRUE)",
+            "SELECT count(*) FROM events WHERE detected_at >= $1 AND detected_at < $2 AND coalesce(noisy_count, 0) > 0 AND (qc_valid IS NULL OR qc_valid = TRUE)",
             start,
             end,
         )

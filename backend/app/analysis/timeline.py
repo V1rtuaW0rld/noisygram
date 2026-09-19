@@ -13,17 +13,17 @@ et sans transfert réseau (mesuré : 468 ms pour 52 s d'audio).
 DEUX CHOSES QUE CETTE TIMELINE FAIT DIFFÉREMMENT de l'API de l'utilisateur, et
 les deux sont délibérées :
 
-1. **Elle ne remplace pas le score canin par la moyenne.** L'API de
-   l'utilisateur fait `reduce_mean(scores, axis=0)` puis un seuil : un aboiement
+1. **Elle ne remplace pas le score principal par la moyenne.** L'API de
+   l'utilisateur fait `reduce_mean(scores, axis=0)` puis un seuil : un événement
    de 3 s dans une minute de vent se dilue à ~5 % de sa valeur, donc disparaît.
-   Le projet a mesuré l'inverse (§5.4) — le critère est le MAX du groupe canin
-   par fenêtre, puis le max sur les fenêtres. On garde donc `dog_max` à part, et
+   Le projet a mesuré l'inverse (§5.4) — le critère est le MAX du groupe surveillé
+   par fenêtre, puis le max sur les fenêtres. On garde donc `noisy_max` à part, et
    il ne se calcule pas à partir de la timeline.
 
 2. **Elle ne se repose pas sur l'`argmax`.** Une fenêtre où `Dog` marque 0,40 et
-   `Speech` 0,46 s'appelle `Speech` : le chien devient invisible. On affiche
+   `Speech` 0,46 s'appelle `Speech` : la source devient invisible. On affiche
    quand même l'`argmax` — c'est ce que l'utilisateur veut lire — mais on
-   expose `dog_frames` séparément, pour que l'écart entre « ce qu'il a entendu »
+   expose `noisy_frames` séparément, pour que l'écart entre « ce qu'il a entendu »
    et « ce qu'il a décidé » soit visible au lieu d'être enterré.
 """
 
@@ -34,7 +34,7 @@ from typing import Any, Sequence
 import numpy as np
 
 from ..audio.resample import TARGET_SR
-from ..classifier.yamnet_litert import DOG_CLASS_NAMES, HOP_SAMPLES, WINDOW_SAMPLES
+from ..classifier.yamnet_litert import NOISY_CLASS_NAMES, HOP_SAMPLES, WINDOW_SAMPLES
 
 # ⚠️ DÉRIVÉS DES CONSTANTES DU MODÈLE, jamais écrits en dur.
 #
@@ -48,10 +48,10 @@ HOP_S = HOP_SAMPLES / TARGET_SR
 WINDOW_S = WINDOW_SAMPLES / TARGET_SR
 
 
-def dog_scores(
-    matrix: np.ndarray, names: Sequence[str], dog_classes: Sequence[str] = DOG_CLASS_NAMES
+def noisy_scores(
+    matrix: np.ndarray, names: Sequence[str], noisy_classes: Sequence[str] = NOISY_CLASS_NAMES
 ) -> np.ndarray:
-    """Le score canin de chaque fenêtre : le MAX sur le GROUPE, jamais l'argmax.
+    """Le score principal de chaque fenêtre : le MAX sur le GROUPE, jamais l'argmax.
 
     Extrait ici parce que deux appelants en ont besoin — la timeline et
     l'entrée d'index qui garde les scores pour la calibration — et que deux
@@ -60,14 +60,14 @@ def dog_scores(
     discriminateur du groupe sur les enregistrements réels.
 
     Le groupe est résolu PAR NOM (§3.2). Un index codé en dur se décale au
-    premier changement de modèle, et le symptôme serait des scores canins
+    premier changement de modèle, et le symptôme serait des scores principaux
     calculés sur la mauvaise classe — plausible, donc invisible.
     """
     m = np.asarray(matrix, dtype=np.float32)
-    dog_idx = [i for i, n in enumerate(names) if n in dog_classes]
-    if not dog_idx or m.size == 0:
+    noisy_idx = [i for i, n in enumerate(names) if n in noisy_classes]
+    if not noisy_idx or m.size == 0:
         return np.zeros(m.shape[0] if m.ndim == 2 else 0, dtype=np.float32)
-    return m[:, dog_idx].max(axis=1)
+    return m[:, noisy_idx].max(axis=1)
 
 
 def _intervalle(debut_s: float, fin_s: float) -> str:
@@ -85,8 +85,8 @@ def build_timeline(
     *,
     n_samples: int,
     min_score: float = 0.3,
-    dog_threshold: float = 0.35,
-    dog_classes: Sequence[str] = DOG_CLASS_NAMES,
+    noisy_threshold: float = 0.35,
+    noisy_classes: Sequence[str] = NOISY_CLASS_NAMES,
 ) -> dict[str, Any]:
     """Construit la timeline d'un fichier à partir de sa matrice de scores.
 
@@ -108,10 +108,10 @@ def build_timeline(
         "hop_s": HOP_S,
         "window_s": WINDOW_S,
         "min_score": min_score,
-        "dog_threshold": dog_threshold,
-        "dog_max": 0.0,
-        "dog_best": None,
-        "dog_frames": [],
+        "noisy_threshold": noisy_threshold,
+        "noisy_max": 0.0,
+        "noisy_best": None,
+        "noisy_frames": [],
         "timeline": [],
     }
     if matrix.size == 0:
@@ -121,7 +121,7 @@ def build_timeline(
     if m.ndim != 2 or m.shape[0] == 0:
         return vide
 
-    canin = dog_scores(m, names, dog_classes)
+    scores_fenetres = noisy_scores(m, names, noisy_classes)
     gagnants = m.argmax(axis=1)
 
     # --- Timeline : on FUSIONNE les fenêtres consécutives de même étiquette.
@@ -156,30 +156,30 @@ def build_timeline(
         courant["interval"] = _intervalle(courant["debut_s"], courant["fin_s"])
         timeline.append(courant)
 
-    # --- Le canin, calculé sur le GROUPE et non sur l'argmax.
-    frames_canines = [
+    # --- Le score surveillé, calculé sur le GROUPE et non sur l'argmax.
+    frames_surveillees = [
         {
             "debut_s": round(i * HOP_S, 2),
             "fin_s": round(i * HOP_S + WINDOW_S, 2),
             "interval": _intervalle(i * HOP_S, i * HOP_S + WINDOW_S),
-            "dog": round(float(canin[i]), 4),
+            "noisy": round(float(scores_fenetres[i]), 4),
             # Ce que l'argmax disait de cette fenêtre : c'est là qu'on voit
-            # qu'un chien peut se cacher sous une autre étiquette.
+            # qu'une source peut se cacher sous une autre étiquette.
             "sound": names[int(gagnants[i])],
             "sound_score": round(float(m[i, gagnants[i]]), 4),
         }
         for i in range(m.shape[0])
-        if float(canin[i]) >= dog_threshold
+        if float(scores_fenetres[i]) >= noisy_threshold
     ]
 
-    i_best = int(np.argmax(canin))
-    dog_best = None
-    if float(canin[i_best]) > 0.0:
-        dog_best = {
+    i_best = int(np.argmax(scores_fenetres))
+    noisy_best = None
+    if float(scores_fenetres[i_best]) > 0.0:
+        noisy_best = {
             "debut_s": round(i_best * HOP_S, 2),
             "fin_s": round(i_best * HOP_S + WINDOW_S, 2),
             "interval": _intervalle(i_best * HOP_S, i_best * HOP_S + WINDOW_S),
-            "dog": round(float(canin[i_best]), 4),
+            "noisy": round(float(scores_fenetres[i_best]), 4),
             "sound": names[int(gagnants[i_best])],
             "sound_score": round(float(m[i_best, gagnants[i_best]]), 4),
         }
@@ -190,9 +190,9 @@ def build_timeline(
         "hop_s": HOP_S,
         "window_s": WINDOW_S,
         "min_score": min_score,
-        "dog_threshold": dog_threshold,
-        "dog_max": round(float(canin.max()), 4),
-        "dog_best": dog_best,
-        "dog_frames": frames_canines,
+        "noisy_threshold": noisy_threshold,
+        "noisy_max": round(float(scores_fenetres.max()), 4),
+        "noisy_best": noisy_best,
+        "noisy_frames": frames_surveillees,
         "timeline": timeline,
     }

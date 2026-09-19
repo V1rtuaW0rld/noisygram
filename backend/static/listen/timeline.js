@@ -211,9 +211,9 @@ function rend(data) {
   $('a-duree').textContent = a.total_duration_sec == null
     ? '—' : decimal(a.total_duration_sec.toFixed(1)) + ' s';
   $('a-fenetres').textContent = a.frames == null ? '—' : String(a.frames);
-  $('a-canin').textContent = a.dog_max == null ? '—' : decimal(a.dog_max.toFixed(3));
-  const canines = (a.dog_frames || []).length;
-  $('a-retenues').textContent = a.frames == null ? '—' : String(canines);
+  $('a-scores_fenetres').textContent = a.noisy_max == null ? '—' : decimal(a.noisy_max.toFixed(3));
+  const fenetres = (a.noisy_frames || []).length;
+  $('a-retenues').textContent = a.frames == null ? '—' : String(fenetres);
   $('a-niveau').textContent = a.peak_dbfs == null
     ? '—' : decimal(a.peak_dbfs.toFixed(1)) + ' dBFS';
 
@@ -233,21 +233,21 @@ function rend(data) {
 
   // Le score cible, séparément de l'argmax : c'est ici qu'on voit l'écart entre « ce
   // qu'il a entendu » et « ce qu'il a décidé ».
-  const note = $('a-canin-note');
-  if (a.dog_best) {
-    const b = a.dog_best;
+  const note = $('a-scores_fenetres-note');
+  if (a.noisy_best) {
+    const b = a.noisy_best;
     note.hidden = false;
-    if (canines > 0) {
-      note.className = 'card-sub canin';
+    if (fenetres > 0) {
+      note.className = 'card-sub scores_fenetres';
       note.textContent =
-        'Événement détecté : ' + canines + ' fenêtre(s) au-dessus du seuil ' +
-        decimal((a.dog_threshold || 0).toFixed(2)) + '.';
+        'Événement détecté : ' + fenetres + ' fenêtre(s) au-dessus du seuil ' +
+        decimal((a.noisy_threshold || 0).toFixed(2)) + '.';
     } else {
       note.className = 'card-sub';
       note.textContent =
         'Aucune fenêtre au-dessus du seuil de détection ' +
-        decimal((a.dog_threshold || 0).toFixed(2)) +
-        '. Le plus proche : ' + b.interval + ', score ' + decimal(b.dog.toFixed(3)) +
+        decimal((a.noisy_threshold || 0).toFixed(2)) +
+        '. Le plus proche : ' + b.interval + ', score ' + decimal(b.noisy.toFixed(3)) +
         ' — où l\'étiquette dominante était « ' + b.sound + ' » (' +
         decimal(b.sound_score.toFixed(3)) + ').';
     }
@@ -267,7 +267,7 @@ function rend(data) {
   // intervalles marquerait donc la fenêtre d'à côté, qui n'est PAS la fenêtre cible — et
   // on afficherait « détection ici » sur une ligne dont le score cible est sous le seuil.
   const hop = a.hop_s || 0.4875;
-  const departsRetenus = (a.dog_frames || []).map((f) => f.debut_s);
+  const departsRetenus = (a.noisy_frames || []).map((f) => f.debut_s);
   const estRetenue = (s) => {
     if (s.debut_s == null) return false;
     const dernier = s.debut_s + Math.max(0, (s.frames || 1) - 1) * hop;
@@ -310,7 +310,7 @@ function rend(data) {
     // C'est le seul endroit où l'on voit qu'un événement peut se cacher sous
     // une classe parente ou sous du bruit ambiant.
     if (estRetenue(s)) {
-      tr.className = 'canin';
+      tr.className = 'scores_fenetres';
       tdS.textContent += '  ⚠ événement détecté dans cette fenêtre';
     }
 

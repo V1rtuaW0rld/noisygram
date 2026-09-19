@@ -2,7 +2,7 @@
 
 Toutes les valeurs ont un défaut utilisable : le conteneur doit démarrer même
 avec un environnement vide. Les variables réellement structurantes
-(DATABASE_URL, BARK_THRESHOLD, APP_TZ) sont injectées par docker-compose.yml.
+(DATABASE_URL, NOISY_THRESHOLD, APP_TZ) sont injectées par docker-compose.yml.
 """
 
 from __future__ import annotations
@@ -46,7 +46,7 @@ class Settings(BaseSettings):
     protocol_version: int = 1
 
     # --- Persistance ---
-    database_url: str = "postgresql://aboigramme:aboigramme_dev_pw@db:5432/aboigramme"
+    database_url: str = "postgresql://noisygram:noisygram_dev_pw@db:5432/noisygram"
     media_dir: Path = Path("/data/media")
     static_dir: Path = Path("/app/static")
     # Procédures d'exploitation, montées depuis l'hôte (lecture seule). Le
@@ -103,7 +103,7 @@ class Settings(BaseSettings):
     # timeline devient illisible. 0,3 est le seuil de l'API de l'utilisateur,
     # gardé pour que les deux sorties se ressemblent.
     #
-    # À ne pas confondre avec `dog_threshold`, qui DÉCIDE : celui-ci ne fait que
+    # À ne pas confondre avec `noisy_threshold`, qui DÉCIDE : celui-ci ne fait que
     # choisir ce qu'on montre.
     analyze_timeline_min_score: float = 0.3
     # Adresse du processus `capture` sur le réseau compose. L'admin s'en sert
@@ -121,16 +121,16 @@ class Settings(BaseSettings):
     model_path: Path = Path("/app/models/yamnet.tflite")
     class_map_path: Path = Path("/app/models/yamnet_class_map.csv")
 
-    # Seuil du score principal, qui est le MAX sur le GROUPE CANIN et non sur
+    # Seuil du score principal, qui est le MAX sur le GROUPE SURVEILLÉ et non sur
     # la seule classe « Bark ». Mesuré sur les enregistrements de référence du
     # terrain (samples/reference/) : la classe Bark plonge à 0,262 sur de vrais
-    # aboiements que Dog score à 0,586 — c'est le moins bon discriminateur du
-    # groupe, et la seule qui rate des aboiements réels.
+    # événements que Dog score à 0,586 — c'est le moins bon discriminateur du
+    # groupe, et la seule qui rate des événements réels.
     #
     # 0,35 reste PROVISOIRE : il sépare largement les positifs mesurés
     # (≥ 0,586) des négatifs synthétiques (≤ 0,020), mais aucun fond sonore
     # réel du terrain n'a encore été mesuré. Voir README, section calibration.
-    dog_threshold: float = 0.35
+    noisy_threshold: float = 0.35
 
     # Désactivé par défaut. ATTENTION : ce flag déplace le point de
     # fonctionnement du modèle, donc l'activer (ou le désactiver après coup)
@@ -147,7 +147,7 @@ class Settings(BaseSettings):
     # de 3 s @ 48 kHz pèse 288 000 octets, soit 3,6× de marge. La limite
     # ws_max_size d'uvicorn (16 777 216 par défaut) n'est pas relevée.
     # --- Épisodes streamés ---
-    # Le client streame tant que ça aboie et clôt après `stream_silence_ms` de
+    # Le client streame tant qu'il y a du bruit et clôt après `stream_silence_ms` de
     # calme ; le serveur classe à la volée et ne garde le fichier que si une
     # fenêtre a dépassé le seuil.
     #
@@ -160,7 +160,7 @@ class Settings(BaseSettings):
     # TUENT DES ÉPISODES LÉGITIMES. 180 s à 16 kHz s16le mono font 5 760 000
     # octets ; à 4 194 304 (l'ancienne valeur), la borne d'octets coupait à
     # 131 s — plus bas que la borne de durée, donc c'est ELLE qui décidait, et
-    # elle JETAIT. 132 s d'aboiements sont partis à la poubelle comme ça.
+    # elle JETAIT. 132 s d'audio sont partis à la poubelle comme ça.
     #
     # 8 Mio laisse 45 % de marge au-dessus des trois minutes.
     max_stream_bytes: int = 8_388_608
@@ -228,9 +228,9 @@ class Settings(BaseSettings):
     # dans `client_storm_window_ms`, la capture est suspendue
     # `client_storm_suspend_ms`. Ce n'est PAS qu'une protection : c'est ce qui
     # décide de la longueur maximale d'une rafale enregistrée d'un seul tenant.
-    # À 12/min, la capture se coupait au bout de 36 s — un chien qui aboie deux
-    # minutes n'était jamais enregistré continu, et aucun recollage ne pouvait
-    # le reconstituer. 40 laisse environ deux minutes.
+    # À 12/min, la capture se coupait au bout de 36 s — une source qui dure deux
+    # minutes n'était jamais enregistrée continue, et aucun recollage ne pouvait
+    # la reconstituer. 40 laisse environ deux minutes.
     client_storm_max: int = 40
     client_storm_window_ms: int = 60_000
     client_storm_suspend_ms: int = 60_000
@@ -268,8 +268,8 @@ class Settings(BaseSettings):
 
         Sinon c'est elle qui décide, à la place de la durée, et un épisode
         légitime est coupé plus tôt que prévu. Avec l'ancien réglage
-        (4 MiB contre 180 s), la coupure tombait à 131 s — et un chien qui
-        aboyait deux minutes voyait son enregistrement tronqué.
+        (4 MiB contre 180 s), la coupure tombait à 131 s — et une source de
+        deux minutes voyait son enregistrement tronqué.
 
         Refusé AU DÉMARRAGE, comme APP_ROLE : une incohérence entre deux
         réglages ne se voit qu'au moment où elle mord, c'est-à-dire au pire
@@ -347,11 +347,11 @@ class Settings(BaseSettings):
         """Octets tolérés : la durée maximale à 16 kHz s16le mono, plus 50 %."""
         return int(self.listen_max_ms / 1000 * 16000 * 2 * 1.5)
 
-    @field_validator("dog_threshold")
+    @field_validator("noisy_threshold")
     @classmethod
     def _seuil_dans_les_bornes(cls, v: float) -> float:
         if not 0.0 <= v <= 1.0:
-            raise ValueError(f"DOG_THRESHOLD doit être dans [0,1], reçu {v}")
+            raise ValueError(f"NOISY_THRESHOLD doit être dans [0,1], reçu {v}")
         return v
 
 

@@ -13,24 +13,24 @@ from dataclasses import dataclass, field
 
 @dataclass(frozen=True)
 class ClassificationResult:
-    dog_score: float
+    noisy_score: float
     """SCORE PRINCIPAL : MAX, sur les fenêtres ET sur le groupe de classes
-    canines (Dog, Bark, Yip, Howl, Bow-wow, Growling, Whimper), pas sur la
+    surveillées (Dog, Bark, Yip, Howl, Bow-wow, Growling, Whimper), pas sur la
     seule classe « Bark ».
 
     Deux raisons, l'une mesurée, l'autre structurelle :
 
     • Mesurée — sur les enregistrements de référence du terrain, Bark plonge à
       0,262 là où Dog monte à 0,586, sur les MÊMES segments. Bark est le moins
-      bon discriminateur du groupe canin : des aboiements réels et lointains
+      bon discriminateur du groupe surveillé : des événements réels et lointains
       marquent sur « Dog » bien plus que sur « Bark », entraînée sur des
-      aboiements proches et isolés.
-    • Structurelle — un chien qui hurle marque sur Howl, pas sur Dog. Prendre
+      événements proches et isolés.
+    • Structurelle — une source qui hurle marque sur Howl, pas sur Dog. Prendre
       le max du groupe ne peut qu'améliorer le rappel, et les sept classes
-      étant toutes canines, la spécificité ne se dilue pas — contrairement à
+      étant toutes surveillées, la spécificité ne se dilue pas — contrairement à
       « Animal » (67), qui réagirait aux chats et aux oiseaux.
 
-    MAX et non moyenne (§5.4) : un clip de 3 s contenant un aboiement de 0,5 s
+    MAX et non moyenne (§5.4) : un clip de 3 s contenant un événement de 0,5 s
     et 2,5 s de vent a un pic élevé et une moyenne basse ; moyenner le
     rejetterait."""
 
@@ -39,7 +39,7 @@ class ClassificationResult:
     parce qu'elle reste la mesure la plus proche de la nuisance qu'on cherche à
     quantifier, et qu'elle permet de comparer les deux critères après coup."""
 
-    mean_dog_score: float
+    mean_noisy_score: float
     """Stocké EN PLUS, pour le réglage ultérieur : c'est la colonne qui dira si
     0,35 était le bon seuil."""
 

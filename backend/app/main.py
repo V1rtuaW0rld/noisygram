@@ -37,7 +37,7 @@ from .ws.hub import ListenHub
 
 setup_logging(settings.log_level)
 
-log = logging.getLogger("aboigramme")
+log = logging.getLogger("noisygram")
 
 # Avant tout montage : StaticFiles refuse un dossier absent, et le montage est
 # évalué à l'import, donc avant le lifespan.
@@ -167,7 +167,7 @@ async def lifespan(app: FastAPI):
         "rôle %s — backend %s, seuil %.2f, médias dans %s",
         settings.app_role,
         classifier.name if classifier else "aucun (rôle admin)",
-        settings.dog_threshold,
+        settings.noisy_threshold,
         settings.media_dir,
     )
     try:
@@ -182,7 +182,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Noisygram",
     version=settings.server_version,
-    description="Détection et historisation d'aboiements — YAMNet + LiteRT.",
+    description="Détection et historisation d'événements — YAMNet + LiteRT.",
     lifespan=lifespan,
 )
 

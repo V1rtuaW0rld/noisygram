@@ -188,7 +188,7 @@ function traite(msg) {
     etat.recu_ms = msg.received_ms;
     $('r-recu').textContent = (msg.received_ms / 1000).toFixed(1) + ' s';
     $('r-fenetres').textContent = String(msg.windows);
-    $('r-score').textContent = msg.max_dog_score == null ? '—' : decimal(msg.max_dog_score.toFixed(3));
+    $('r-score').textContent = msg.max_noisy_score == null ? '—' : decimal(msg.max_noisy_score.toFixed(3));
     // Un morceau perdu se lirait sinon comme du silence dans la pièce : c'est
     // la conclusion exactement inverse de la vérité.
     $('r-perdus').textContent = msg.dropped_chunks
@@ -208,8 +208,8 @@ function traite(msg) {
     let texte = 'Écoute terminée (' + msg.reason + ')';
     if (msg.wav_name) {
       texte += ' — ' + msg.wav_name;
-      if (a.dog_score != null) {
-        texte += ', score max ' + decimal(a.dog_score.toFixed(3));
+      if (a.noisy_score != null) {
+        texte += ', score max ' + decimal(a.noisy_score.toFixed(3));
       }
       if (a.windows) {
         texte += ', ' + (a.windows_retenues || 0) + '/' + a.windows + ' fenêtres retenues';
@@ -514,7 +514,7 @@ function renduPageSamples() {
     const a = s.analysis;
     tr.appendChild(cel(s.name));
     tr.appendChild(cel(s.duration_ms == null ? '—' : decimal((s.duration_ms / 1000).toFixed(1)) + ' s'));
-    tr.appendChild(cel(a && a.dog_score != null ? decimal(a.dog_score.toFixed(3)) : '—'));
+    tr.appendChild(cel(a && a.noisy_score != null ? decimal(a.noisy_score.toFixed(3)) : '—'));
 
     // Score QC
     const qcScoreTxt = a && a.qc_score != null ? decimal((a.qc_score * 100).toFixed(1)) + ' %' : '—';
@@ -674,15 +674,15 @@ function renduPageCaptures() {
     // 1° Colonne N° de capture
     tr.appendChild(cel('n° ' + e.id, 'td-num'));
 
-    // Colonnes Quand, Durée, Canin, Rafales
+    // Colonnes Quand, Durée, Score, Rafales
     const isRefused = e.backend && e.backend.includes('refused');
     const quand = new Date(e.detected_at);
     tr.appendChild(cel(quand.toLocaleString('fr-FR')));
     tr.appendChild(cel(decimal((e.duration_ms / 1000).toFixed(1)) + ' s'));
     if (isRefused) {
-      tr.appendChild(cel(decimal(e.dog_score.toFixed(3)) + ' (refusé)', 'avert'));
+      tr.appendChild(cel(decimal(e.noisy_score.toFixed(3)) + ' (refusé)', 'avert'));
     } else {
-      tr.appendChild(cel(decimal(e.dog_score.toFixed(3))));
+      tr.appendChild(cel(decimal(e.noisy_score.toFixed(3))));
     }
 
     // Score QC
@@ -704,7 +704,7 @@ function renduPageCaptures() {
     if (isRefused) {
       tr.appendChild(cel('0', 'avert'));
     } else {
-      tr.appendChild(cel(String(e.bark_count == null ? '—' : e.bark_count)));
+      tr.appendChild(cel(String(e.noisy_count == null ? '—' : e.noisy_count)));
     }
 
     // Colonne 1 : Faux (à gauche d'Analyser)
@@ -797,7 +797,7 @@ async function chargeCaptures(silencieux = false) {
     const badge = $('badge-captures');
     if (badge) badge.textContent = pagination.captures.items.length;
 
-    const rafales = pagination.captures.items.reduce((a, e) => a + (e.bark_count || 0), 0);
+    const rafales = pagination.captures.items.reduce((a, e) => a + (e.noisy_count || 0), 0);
     $('captures-sub').textContent =
       pagination.captures.items.length + ' capture(s) — ' + rafales + ' rafale(s) au total.';
 
@@ -858,7 +858,7 @@ function appliqueTheme(theme) {
   else delete document.documentElement.dataset.theme;
   try {
     localStorage.setItem('noisygram.theme', theme || '');
-    localStorage.setItem('aboigramme.theme', theme || '');
+    localStorage.setItem('noisygram.theme', theme || '');
   } catch (e) {}
   const lienDashboard = document.querySelector('a[href*="/dashboard/"]');
   if (lienDashboard) {
@@ -871,7 +871,7 @@ function init() {
   const urlTheme = new URLSearchParams(window.location.search).get('theme');
   const themeEnregistre = urlTheme || (() => {
     try {
-      return localStorage.getItem('noisygram.theme') || localStorage.getItem('aboigramme.theme');
+      return localStorage.getItem('noisygram.theme') || localStorage.getItem('noisygram.theme');
     } catch (e) { return null; }
   })();
   if (themeEnregistre) {
@@ -889,7 +889,7 @@ function init() {
   });
 
   window.addEventListener('storage', (e) => {
-    if (e.key === 'noisygram.theme' || e.key === 'aboigramme.theme') {
+    if (e.key === 'noisygram.theme' || e.key === 'noisygram.theme') {
       appliqueTheme(e.newValue || null);
     }
   });

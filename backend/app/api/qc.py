@@ -33,7 +33,7 @@ class SnippetExtractRequest(BaseModel):
 
 
 SNIPPETS_DIR = Path("/data/reference/snippets")
-DEFAULT_REF_WAV = "/data/reference/Aboiements.wav"
+DEFAULT_REF_WAV = "/data/reference/reference.wav"
 
 
 async def get_active_reference_wav_paths() -> list[str]:
@@ -72,8 +72,8 @@ async def list_qc_candidates(limit: int = 500) -> list[dict[str, Any]]:
     """Liste les enregistrements scorés par YAMNet pour le Quality Center."""
     rows = await db.fetch(
         """
-        SELECT e.id, e.detected_at, e.dog_score, e.qc_score, e.duration_ms, e.mp3_path,
-               e.bark_count, e.wav_name, e.is_reference, e.backend,
+        SELECT e.id, e.detected_at, e.noisy_score, e.qc_score, e.duration_ms, e.mp3_path,
+               e.noisy_count, e.wav_name, e.is_reference, e.backend,
                COUNT(s.id)::int AS snippets_count
         FROM events e
         LEFT JOIN qc_snippets s ON s.event_id = e.id

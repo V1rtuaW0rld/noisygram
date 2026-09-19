@@ -437,7 +437,7 @@ console.log('\n■ Routes');
 console.log('\n■ Worklet');
 {
   const js = lire(path.join(STATIC, 'client', 'recorder-worklet.js'));
-  check('registerProcessor appelé', /registerProcessor\('aboigramme-recorder'/.test(js));
+  check('registerProcessor appelé', /registerProcessor\('noisygram-recorder'/.test(js));
   check('downmix (L+R)/2 présent', /\(gauche\[i\] \+ droite\[i\]\) \* 0\.5/.test(js));
   check('try/catch autour de process()', /process\(inputs\)\s*\{\s*try/.test(js));
   check('aucune allocation dans process() (new … dans la boucle)',

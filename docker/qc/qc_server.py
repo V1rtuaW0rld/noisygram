@@ -27,8 +27,8 @@ log = logging.getLogger("noisygram-qc")
 
 MODEL_PATH = os.environ.get("QC_MODEL_PATH", "/app/models/yamnet.tflite")
 REFERENCE_DIR = Path(os.environ.get("REFERENCE_DIR", "/data/reference"))
-ACTIVE_REF_PATH = REFERENCE_DIR / "dog_reference.npy"
-DEFAULT_REF_WAV = REFERENCE_DIR / "Aboiements.wav"
+ACTIVE_REF_PATH = REFERENCE_DIR / "reference.npy"
+DEFAULT_REF_WAV = REFERENCE_DIR / "reference.wav"
 
 WINDOW_SAMPLES = 15_600
 HOP_SAMPLES = 7_800

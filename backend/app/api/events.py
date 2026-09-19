@@ -27,8 +27,8 @@ router = APIRouter(tags=["events"])
 
 COLUMNS = (
     "id, detected_at, received_at, client_captured_at, client_id, client_seq, "
-    "dog_score, bark_score, mean_dog_score, duration_ms, sample_rate, "
-    "mp3_path, mp3_bytes, backend, model_version, top_classes, bark_count, wav_name, "
+    "noisy_score, bark_score, mean_noisy_score, duration_ms, sample_rate, "
+    "mp3_path, mp3_bytes, backend, model_version, top_classes, noisy_count, wav_name, "
     "qc_score, is_reference, qc_valid"
 )
 
@@ -74,8 +74,8 @@ async def list_events(
     start = aware(from_, now - timedelta(hours=24))
     end = aware(to, now)
 
-    where = "detected_at >= $1 AND detected_at < $2 AND dog_score >= $3"
-    total = await db.fetchval(f"SELECT coalesce(sum(bark_count), 0) FROM events WHERE {where}", start, end, min_score)
+    where = "detected_at >= $1 AND detected_at < $2 AND noisy_score >= $3"
+    total = await db.fetchval(f"SELECT coalesce(sum(noisy_count), 0) FROM events WHERE {where}", start, end, min_score)
     rows = await db.fetch(
         f"SELECT {COLUMNS} FROM events WHERE {where} "
         "ORDER BY detected_at DESC LIMIT $4 OFFSET $5",
@@ -115,7 +115,7 @@ async def events_since(
         )
 
     rows = await db.fetch(
-        f"SELECT {COLUMNS} FROM events WHERE id > $1 AND coalesce(bark_count, 0) > 0 AND (qc_valid IS NULL OR qc_valid = TRUE) ORDER BY id ASC LIMIT $2",
+        f"SELECT {COLUMNS} FROM events WHERE id > $1 AND coalesce(noisy_count, 0) > 0 AND (qc_valid IS NULL OR qc_valid = TRUE) ORDER BY id ASC LIMIT $2",
         after_id,
         limit,
     )
@@ -130,7 +130,7 @@ async def events_since(
 
 _RAFALE_SQL = """
 WITH chaine AS (
-    SELECT id, detected_at, dog_score, duration_ms, mp3_path, mp3_bytes,
+    SELECT id, detected_at, noisy_score, duration_ms, mp3_path, mp3_bytes,
            CASE
              -- IS NULL explicite : la première ligne d'un client est un DÉBUT.
              -- Le ELSE 0 la traiterait comme une continuité dès qu'on bornera
@@ -141,7 +141,7 @@ WITH chaine AS (
              ELSE 0
            END AS debut
     FROM events
-    WHERE client_id = $1 AND coalesce(bark_count, 0) > 0
+    WHERE client_id = $1 AND coalesce(noisy_count, 0) > 0
     WINDOW w AS (ORDER BY detected_at, id)
 ),
 -- Les alias de fenêtre ne sont pas visibles dans le WHERE de leur propre
@@ -159,7 +159,7 @@ situe AS (
     FROM numerote
 ),
 ancre AS (SELECT rafale, detected_at FROM situe WHERE id = $3)
-SELECT s.id, s.detected_at, s.dog_score, s.duration_ms, s.mp3_path, s.mp3_bytes,
+SELECT s.id, s.detected_at, s.noisy_score, s.duration_ms, s.mp3_path, s.mp3_bytes,
        s.rang, s.total
 FROM situe s, ancre a
 WHERE s.rafale = a.rafale
@@ -202,7 +202,7 @@ async def event_sequence(
     couperait en deux à chaque refus, c'est-à-dire en permanence.
     """
     ancre = await db.fetchrow(
-        f"SELECT {COLUMNS}, bark_count FROM events WHERE id = $1", event_id
+        f"SELECT {COLUMNS}, noisy_count FROM events WHERE id = $1", event_id
     )
     if ancre is None:
         raise HTTPException(status_code=404, detail=f"événement {event_id} inconnu")
@@ -212,9 +212,9 @@ async def event_sequence(
     # exactement ce que le passage au flux a supprimé. Un épisode se renvoie
     # donc SEUL, et le lecteur du dashboard le joue tel quel, sans modification.
     #
-    # Les lignes antérieures (clips de 3 s, bark_count = 1) gardent le chaînage
+    # Les lignes antérieures (clips de 3 s, noisy_count = 1) gardent le chaînage
     # d'origine : l'historique reste écoutable comme avant.
-    episode = (ancre["bark_count"] or 1) > 1
+    episode = (ancre["noisy_count"] or 1) > 1
     client_id = ancre["client_id"]
 
     if episode or client_id is None:
@@ -245,7 +245,7 @@ async def event_sequence(
             SequenceEvent(
                 id=r["id"],
                 detected_at=r["detected_at"],
-                dog_score=r["dog_score"],
+                noisy_score=r["noisy_score"],
                 duration_ms=r["duration_ms"],
                 mp3_url=media.url_for(r["mp3_path"]),
                 mp3_bytes=r["mp3_bytes"],
@@ -306,23 +306,23 @@ async def delete_event(event_id: int) -> DeletedOut:
 async def disapprove_event(event_id: int):
     """Marquer un événement comme faux / désapprouvé par l'utilisateur."""
     row = await db.fetchrow(
-        "UPDATE events SET bark_count = 0, backend = 'refused/user_rejected', is_reference = FALSE, qc_valid = FALSE "
+        "UPDATE events SET noisy_count = 0, backend = 'refused/user_rejected', is_reference = FALSE, qc_valid = FALSE "
         "WHERE id = $1 RETURNING id",
         event_id,
     )
     if row is None:
         raise HTTPException(status_code=404, detail=f"événement {event_id} inconnu")
-    return {"id": event_id, "status": "disapproved", "bark_count": 0, "qc_valid": False}
+    return {"id": event_id, "status": "disapproved", "noisy_count": 0, "qc_valid": False}
 
 
 @router.post("/events/{event_id}/approve")
 async def approve_event(event_id: int):
     """Réhabiliter un événement précédemment marqué comme faux."""
     row = await db.fetchrow(
-        "UPDATE events SET bark_count = 1, backend = 'episode/silence', qc_valid = TRUE "
+        "UPDATE events SET noisy_count = 1, backend = 'episode/silence', qc_valid = TRUE "
         "WHERE id = $1 RETURNING id",
         event_id,
     )
     if row is None:
         raise HTTPException(status_code=404, detail=f"événement {event_id} inconnu")
-    return {"id": event_id, "status": "approved", "bark_count": 1, "qc_valid": True}
+    return {"id": event_id, "status": "approved", "noisy_count": 1, "qc_valid": True}

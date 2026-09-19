@@ -1,4 +1,4 @@
-# Servir Aboigramme en HTTPS avec Caddy
+# Servir Noisygram en HTTPS avec Caddy
 
 Documentation seule : **le compose ne contient aucun reverse proxy**. Si tu as
 déjà un Caddy, voici comment le brancher.
@@ -31,7 +31,7 @@ Caddy (`basic_auth`) trouverait sa place — le service, lui, n'en a aucune.
 ## Le Caddyfile
 
 ```caddy
-aboigramme.lan {
+noisygram.lan {
     tls internal
 
     reverse_proxy 127.0.0.1:4466 {
@@ -64,7 +64,7 @@ Sur le poste extérieur, ajouter dans
 `C:\Windows\System32\drivers\etc\hosts` :
 
 ```
-192.168.1.42   aboigramme.lan
+192.168.1.42   noisygram.lan
 ```
 
 (ou une entrée DNS si la box le permet — c'est plus propre si d'autres machines
@@ -89,7 +89,7 @@ installation par paquets Debian).
 ### 3. Faire pointer la page de capture vers le nom
 
 ```
-https://aboigramme.lan/client/
+https://noisygram.lan/client/
 ```
 
 Le préflight passera, et `navigator.mediaDevices` existera.
@@ -117,7 +117,7 @@ est alors fiable.
   ci-dessus : Caddy détecte la mise à niveau `Upgrade: websocket` et la relaie.
   Ne pas ajouter de règle `handle` qui court-circuiterait `/ws/`.
 - **Ne pas exposer ce service sur Internet.** Il n'a **aucune
-  authentification** — une hypothèse LAN-only assumée. `aboigramme.lan` doit
+  authentification** — une hypothèse LAN-only assumée. `noisygram.lan` doit
   rester un nom interne. Utiliser un nom en `.lan` ou `.home.arpa`, jamais un
   domaine public.
 - **`tls internal` ne convient pas à un domaine public**, et n'a pas à le faire.

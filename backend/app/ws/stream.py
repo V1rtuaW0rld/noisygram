@@ -38,14 +38,14 @@ class Bilan:
     scores par fenêtre d'un épisode.
 
     Un épisode n'a pas « un » score : il en a un par fenêtre de 975 ms. Le
-    score principal devient donc le MAXIMUM — la règle du groupe canin, celle
+    score principal devient donc le MAXIMUM — la règle du groupe surveillé, celle
     qui décide depuis le début — et la moyenne, qui sur trois minutes cesse
     d'être du bruit, garde son sens de mesure du fond sonore.
     """
 
-    dog_score: float
+    noisy_score: float
     bark_score: float | None
-    mean_dog_score: float
+    mean_noisy_score: float
     top_classes: list | None = None
     processing_ms: float = 0.0
 
@@ -142,7 +142,7 @@ class EpisodeWriter:
         return pcm16_to_float32(brut, channels=1)
 
     def discard(self) -> None:
-        """Efface le temporaire. Un épisode sans chien ne laisse RIEN."""
+        """Efface le temporaire. Un épisode sans détection ne laisse RIEN."""
         self.close()
         try:
             os.unlink(self.path)
@@ -206,7 +206,7 @@ class StreamState:
         d'aucune horloge et ne peut pas dériver. C'est ce qui permet de dater
         l'épisode sans jamais faire confiance à l'horloge du vieux PC — la
         contrainte G6 du projet tient donc toujours, et mieux qu'avant : on
-        date maintenant l'aboiement, plus le déclencheur.
+        date maintenant l'événement, plus le déclencheur.
         """
         return self.received_at - timedelta(
             milliseconds=self.pre_roll_samples / self.sample_rate * 1000
@@ -223,7 +223,7 @@ class StreamState:
         return debut, fin
 
 
-def compter_aboiements(
+def compter_evenements(
     scores: list[float],
     offsets: list[int],
     seuil: float,
@@ -233,12 +233,12 @@ def compter_aboiements(
     """Nombre de rafales distinctes, pas de fenêtres.
 
     Deux fenêtres voisines se recouvrent à 50 % (fenêtre 975 ms, hop 487 ms) :
-    un seul aboiement en allume donc deux, parfois trois. On ne compte une
+    un seul événement en allume donc deux, parfois trois. On ne compte une
     nouvelle rafale que si le dépassement précédent date de plus de `fusion_ms`
     — converti en ÉCHANTILLONS, car les décalages sont en échantillons.
 
     C'est ce compteur qui permet aux graphiques de continuer à parler
-    d'« aboiements » alors qu'une ligne de base est désormais un épisode.
+    d'« événements » alors qu'une ligne de base est désormais un épisode.
     """
     fusion = int(fusion_ms * sample_rate / 1000)
     rafales = 0
