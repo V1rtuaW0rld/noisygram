@@ -212,6 +212,27 @@ MIGRATIONS: dict[int, str] = {
 
     CREATE INDEX IF NOT EXISTS events_noisy_score_idx ON events (noisy_score DESC);
     """,
+    # 8 — Le projet : ce que cette installation cherche à compter.
+    #
+    #     Jusqu'ici le groupe de classes YAMNet était une constante du code
+    #     (`NOISY_CLASS_NAMES`), et `load()` refusait même de démarrer si le
+    #     class map ne contenait pas Bark et Dog — l'hypothèse canine était une
+    #     condition de démarrage, pas seulement un défaut.
+    #
+    #     La cible devient une donnée. UNE SEULE ligne, parce qu'une
+    #     installation compte une chose à la fois et qu'un réglage à plusieurs
+    #     lignes serait une fausse généralité. Le jour où il faudra plusieurs
+    #     cibles nommées, ce sera une migration, pas une devinette.
+    8: """
+    CREATE TABLE IF NOT EXISTS projet_config (
+        id         INTEGER     PRIMARY KEY DEFAULT 1,
+        nom        TEXT,
+        terme      TEXT,
+        classes    JSONB       NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        CONSTRAINT projet_config_ligne_unique CHECK (id = 1)
+    );
+    """,
 }
 
 

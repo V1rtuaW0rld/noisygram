@@ -289,13 +289,22 @@ async def analyser(name: str, request: Request, relancer: bool = False) -> dict:
     # pour la même information.
     t0 = time.monotonic()
     matrix = await asyncio.to_thread(classifier.score_matrix, x16)
-    scores_fenetres = noisy_scores(matrix, noms)
+    # Le groupe surveillé est celui du classifieur EN SERVICE — celui qui a
+    # réellement décidé des scores. On ne le relit PAS en base : si la config a
+    # changé depuis le démarrage, la timeline afficherait les fenêtres d'un
+    # autre groupe que celui qui a classé, et elle expliquerait autre chose que
+    # ce qui s'est passé. Si le backend n'expose pas de groupe (classifieur
+    # distant), on laisse la fonction appliquer son défaut.
+    classes_cibles = getattr(classifier, "classes_cibles", None)
+    extras = {"noisy_classes": list(classes_cibles)} if classes_cibles else {}
+    scores_fenetres = noisy_scores(matrix, noms, **extras)
     timeline = build_timeline(
         matrix,
         noms,
         n_samples=x16.size,
         min_score=settings.analyze_timeline_min_score,
         noisy_threshold=seuil,
+        **extras,
     )
     duree_calcul = time.monotonic() - t0
 

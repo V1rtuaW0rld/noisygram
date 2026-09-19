@@ -109,11 +109,16 @@ class YamnetLitertBackend(ClassifierBackend):
         class_map_path: Path,
         threshold: float = 0.35,
         peak_normalize: bool = False,
+        classes_cibles: list[str] | None = None,
     ) -> None:
         self.model_path = Path(model_path)
         self.class_map_path = Path(class_map_path)
         self.threshold = threshold
         self.peak_normalize = peak_normalize
+        # Le groupe surveillé vient du PROJET (voir app/projet.py). `None` rend
+        # `NOISY_CLASS_NAMES`, qui n'est donc plus qu'un défaut de repli — plus
+        # une décision du code.
+        self.classes_cibles: tuple[str, ...] = tuple(classes_cibles or NOISY_CLASS_NAMES)
 
         self._interpreter = None
         self._input_index: int | None = None
@@ -187,32 +192,30 @@ class YamnetLitertBackend(ClassifierBackend):
 
             # Résolus PAR NOM, jamais codés en dur (§3.2). L'index 0 est
             # « Speech », pas « Animal » : une supposition ici décalerait tout.
-            try:
-                self._bark_index = self._names.index("Bark")
-                self._noisy_index = self._names.index("Dog")
-            except ValueError as exc:
-                raise ValueError(
-                    "class map sans les classes 'Bark'/'Dog' — ce n'est pas le "
-                    "yamnet_class_map.csv attendu"
-                ) from exc
+            #
+            # ⚠️ Bark et Dog ne sont plus EXIGÉS. Ils l'étaient, et leur absence
+            # faisait refuser le démarrage : la cible canine était donc une
+            # condition de démarrage, pas seulement une constante. Ils ne sont
+            # désormais résolus que comme diagnostic, quand le projet les
+            # surveille.
+            for nom, attribut in (("Bark", "_bark_index"), ("Dog", "_noisy_index")):
+                try:
+                    setattr(self, attribut, self._names.index(nom))
+                except ValueError:
+                    setattr(self, attribut, None)
 
-            if (self._bark_index, self._noisy_index) != (
-                EXPECTED_BARK_INDEX,
-                EXPECTED_NOISY_INDEX,
-            ):
-                log.warning(
-                    "indices Bark/Dog inattendus : %d/%d (référence %d/%d) — "
-                    "on continue avec ceux du fichier",
-                    self._bark_index,
-                    self._noisy_index,
-                    EXPECTED_BARK_INDEX,
-                    EXPECTED_NOISY_INDEX,
+            # La SEULE condition qui reste : le projet doit surveiller au moins
+            # une classe que ce modèle sait nommer. Sinon le service classerait
+            # tout à zéro et refuserait chaque épisode — une panne qui
+            # ressemble à « le poste n'envoie rien ».
+            if not [n for n in self.classes_cibles if n in self._names]:
+                raise ValueError(
+                    "aucune des classes surveillées n'existe dans ce class map : "
+                    f"{list(self.classes_cibles)} — le projet configuré ne "
+                    "correspond pas à ce modèle"
                 )
 
-            # Le groupe surveillé. Dog et Bark sont exigées juste au-dessus : la
-            # liste n'est donc jamais vide. Les cinq autres sont un bonus —
-            # leur absence réduit le rappel sans casser quoi que ce soit.
-            for name in NOISY_CLASS_NAMES:
+            for name in self.classes_cibles:
                 try:
                     self._noisy_indices.append(self._names.index(name))
                 except ValueError:
@@ -222,10 +225,27 @@ class YamnetLitertBackend(ClassifierBackend):
                         name,
                     )
 
+            # Diagnostic : ces deux indices sont des faits du modèle YAMNet, et
+            # n'ont de sens que si le projet surveille les chiens. Un écart
+            # signale un class map qui n'est pas celui attendu.
+            if self._bark_index is not None and self._noisy_index is not None:
+                if (self._bark_index, self._noisy_index) != (
+                    EXPECTED_BARK_INDEX,
+                    EXPECTED_NOISY_INDEX,
+                ):
+                    log.warning(
+                        "indices Bark/Dog inattendus : %d/%d (référence %d/%d) — "
+                        "on continue avec ceux du fichier",
+                        self._bark_index,
+                        self._noisy_index,
+                        EXPECTED_BARK_INDEX,
+                        EXPECTED_NOISY_INDEX,
+                    )
+
             log.info(
                 "YAMNet chargé : %d classes, groupe surveillé %s → indices %s, version=%s",
                 len(self._names),
-                list(NOISY_CLASS_NAMES),
+                list(self.classes_cibles),
                 self._noisy_indices,
                 self._model_version,
             )
@@ -344,7 +364,15 @@ class YamnetLitertBackend(ClassifierBackend):
         # Bark reste mesurée séparément, en diagnostic : c'est la colonne qui
         # permettra de vérifier après coup si le changement de critère était le
         # bon, sur des données réelles et non sur six segments.
-        bark = float(scores[:, self._bark_index].max())
+        #
+        # Optionnelle : un projet qui ne surveille pas les chiens n'a pas de
+        # diagnostic Bark. On rend None — la colonne reste vide plutôt que
+        # d'écrire un 0, qui se lirait comme « Bark a répondu zéro ».
+        bark = (
+            float(scores[:, self._bark_index].max())
+            if self._bark_index is not None
+            else None
+        )
         mean_noisy = float(noisy_per_window.mean())
 
         # Le top-K est celui de la fenêtre qui a produit le score retenu : une

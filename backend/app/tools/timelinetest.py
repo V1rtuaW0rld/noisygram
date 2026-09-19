@@ -102,16 +102,21 @@ def test_pur() -> None:
 
 def test_reel(chemin: str) -> None:
     """La vraie chaîne, sur un fichier fourni."""
+    from .. import projet
     from ..audio.resample import resample_to_16k
     from ..audio.wav import read_wav_float32
     from ..classifier.factory import build_classifier
     from ..classifier.yamnet_litert import load_class_names
     from ..config import settings
+    import asyncio
     import time
 
     x, sr = read_wav_float32(chemin)
     x16 = resample_to_16k(x, sr)
-    clf = build_classifier(settings)
+    # Même raison que dans selftest : sans la config, cet outil afficherait le
+    # groupe PAR DÉFAUT pendant que le service en surveille un autre.
+    classes_cibles, _ = asyncio.run(projet.lire_hors_service())
+    clf = build_classifier(settings, classes_cibles)
     clf.load()
     noms = load_class_names(settings.class_map_path)
 
@@ -149,7 +154,23 @@ def test_reel(chemin: str) -> None:
 
 def main() -> int:
     print("■ Timeline d'analyse — logique pure")
-    print(f"  groupe surveillé : {list(NOISY_CLASS_NAMES)}")
+    # Le groupe vient du PROJET. On le lit pour l'afficher, mais son absence ne
+    # doit pas empêcher le test PUR de tourner : celui-ci ne touche pas à la
+    # base et n'a pas besoin d'un projet configuré.
+    try:
+        import asyncio
+
+        from .. import projet
+
+        classes, ligne = asyncio.run(projet.lire_hors_service())
+        nom = (ligne or {}).get("nom")
+        print(
+            "  groupe surveillé : "
+            + (f"{list(classes)}  (projet « {nom or 'sans nom'} »)" if classes
+               else "(aucun projet — le backend appliquera son défaut)")
+        )
+    except Exception as exc:  # noqa: BLE001
+        print(f"  groupe surveillé : (projet illisible — {exc})")
     test_pur()
 
     if len(sys.argv) > 1:

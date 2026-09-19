@@ -12,7 +12,14 @@ from .yamnet_litert import YamnetLitertBackend
 log = logging.getLogger(__name__)
 
 
-def build_classifier(settings: Settings) -> ClassifierBackend:
+def build_classifier(
+    settings: Settings, classes_cibles: list[str] | None = None
+) -> ClassifierBackend:
+    """Construit le backend. `classes_cibles` vient du projet (voir app/projet.py).
+
+    `None` laisse le backend appliquer son propre défaut — c'est ce qui arrive
+    tant qu'aucun projet n'a été enregistré.
+    """
     backend = settings.classifier_backend.strip().lower()
 
     if backend in ("yamnet_litert", "yamnet-litert", "yamnet"):
@@ -21,6 +28,7 @@ def build_classifier(settings: Settings) -> ClassifierBackend:
             class_map_path=settings.class_map_path,
             threshold=settings.noisy_threshold,
             peak_normalize=settings.peak_normalize,
+            classes_cibles=classes_cibles,
         )
 
     if backend in ("remote_http", "remote-http"):

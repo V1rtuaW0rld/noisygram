@@ -18,6 +18,7 @@ d'événement (doit être accepté) — §13.
 from __future__ import annotations
 
 import argparse
+import asyncio
 import hashlib
 import sys
 import time
@@ -28,6 +29,7 @@ import numpy as np
 from ..audio.pcm import float32_to_pcm16, pcm16_to_float32, rms
 from ..audio.resample import TARGET_SR, resample_to_16k
 from ..audio.wav import read_wav_float32
+from .. import projet
 from ..classifier.yamnet_litert import (
     NOISY_CLASS_NAMES,
     EXPECTED_BARK_INDEX,
@@ -366,11 +368,22 @@ def main(argv: list[str] | None = None) -> int:
 
     # -- 5. Chargement du modèle ------------------------------------------
     print("\n■ Chargement de YAMNet")
+    # Le groupe surveillé vient du PROJET, comme pour le service. Sans cette
+    # lecture, cet outil mesurerait le groupe PAR DÉFAUT pendant que la capture
+    # en surveille un autre : il afficherait des scores qui ne correspondent à
+    # rien de ce qui tourne.
+    classes_cibles, ligne_projet = asyncio.run(projet.lire_hors_service())
+    if ligne_projet:
+        print(
+            f"        projet « {ligne_projet.get('nom') or '(sans nom)'} » "
+            f"→ {classes_cibles}"
+        )
     backend = YamnetLitertBackend(
         model_path=settings.model_path,
         class_map_path=settings.class_map_path,
         threshold=settings.noisy_threshold,
         peak_normalize=settings.peak_normalize,
+        classes_cibles=classes_cibles,
     )
     try:
         t0 = time.perf_counter()

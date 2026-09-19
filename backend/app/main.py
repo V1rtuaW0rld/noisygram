@@ -25,7 +25,7 @@ from fastapi import FastAPI, Response
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import db
+from . import db, projet
 from .api import events, health, ondemand as ondemand_api, qc as qc_api, stats
 from .classifier.factory import build_classifier
 from .config import settings
@@ -158,8 +158,21 @@ async def lifespan(app: FastAPI):
     # plantage d'inférence côté capture ne peut plus emporter le dashboard.
     classifier = None
     if settings.charge_classifieur:
-        classifier = build_classifier(settings)
+        # Le groupe surveillé vient du PROJET (migration 8). Tant qu'aucun
+        # projet n'est enregistré, `lire()` rend None et le backend applique son
+        # propre défaut — c'est ce qui rend la migration sans effet visible.
+        #
+        # ⚠️ Le groupe est figé ICI, au démarrage. En changer demande de
+        # redémarrer la capture : l'Interpreter LiteRT n'est pas thread-safe, on
+        # ne le reconstruit donc pas à chaud.
+        classes_cibles, ligne_projet = await projet.lire()
+        classifier = build_classifier(settings, classes_cibles)
         classifier.load()
+        log.info(
+            "projet %s → %s",
+            (ligne_projet or {}).get("nom") or "(non configuré, défaut appliqué)",
+            classes_cibles or "(défaut du backend)",
+        )
     app.state.classifier = classifier
     app.state.started_at = time.time()
 
