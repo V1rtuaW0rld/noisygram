@@ -98,11 +98,20 @@ def _resoudre(name: str) -> Path:
 
 
 def _lister() -> list[Path]:
+    """Les écoutes à la demande, et RIEN d'autre.
+
+    ⚠️ Le dossier est PARTAGÉ : `./export` porte aussi les épisodes (`_capture`
+    et `_refuse`) et les dumps de diagnostic (`_debug`). Sans `is_sample`, ce
+    panneau listait les 632 fichiers du dossier — dont 569 épisodes refusés —
+    au lieu des 10 vraies écoutes, et rien ne le signalait : les refus
+    s'affichaient comme des « directs ». `is_sample` écarte déjà les `.part`
+    et les fichiers cachés.
+    """
     racine = settings.ondemand_dir
     if not racine.is_dir():
         return []
     return sorted(
-        (p for p in racine.glob("*.wav") if not p.name.endswith(".part") and not p.name.startswith(".")),
+        (p for p in racine.glob("*.wav") if ondemand.is_sample(p.name)),
         key=lambda p: p.stat().st_mtime,
         reverse=True,
     )
