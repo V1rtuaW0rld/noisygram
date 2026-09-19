@@ -9,12 +9,12 @@
   (function() {
     try {
       var p = new URLSearchParams(window.location.search).get('theme');
-      var t = p || localStorage.getItem('noisygram.theme') || localStorage.getItem('noisygram.theme');
+      var t = p || localStorage.getItem('noisygram.theme') || localStorage.getItem('aboigramme.theme');
       if (t) document.documentElement.dataset.theme = t;
     } catch (e) {}
   })();
 </script>
-<link rel="stylesheet" href="style.css?v=16">
+<link rel="stylesheet" href="style.css?v=17">
 </head>
 <body>
 
@@ -164,6 +164,6 @@
   <a href="https://noisy.virtuaworld.org/dashboard/">Dashboard →</a>
 </footer>
 
-<script src="app.js?v=16"></script>
+<script src="app.js?v=17"></script>
 </body>
 </html>

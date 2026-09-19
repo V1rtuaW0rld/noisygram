@@ -9,12 +9,12 @@
   (function() {
     try {
       var p = new URLSearchParams(window.location.search).get('theme');
-      var t = p || localStorage.getItem('noisygram.theme') || localStorage.getItem('noisygram.theme');
+      var t = p || localStorage.getItem('noisygram.theme') || localStorage.getItem('aboigramme.theme');
       if (t) document.documentElement.dataset.theme = t;
     } catch (e) {}
   })();
 </script>
-<link rel="stylesheet" href="style.css?v=20">
+<link rel="stylesheet" href="style.css?v=21">
 </head>
 <body>
 
@@ -286,7 +286,7 @@
       <dl class="releve">
         <div><dt>Durée</dt><dd id="a-duree">—</dd></div>
         <div><dt>Fenêtres</dt><dd id="a-fenetres">—</dd></div>
-        <div><dt>Score max</dt><dd id="a-scores_fenetres">—</dd></div>
+        <div><dt>Score max</dt><dd id="a-noisy">—</dd></div>
         <div><dt>Fenêtres retenues</dt><dd id="a-retenues">—</dd></div>
         <div><dt>Niveau (pic)</dt><dd id="a-niveau">—</dd></div>
       </dl>
@@ -294,7 +294,7 @@
       <!-- Le niveau AVANT le score : un sample muet explique tout le reste, et
            sans ce bandeau il ressemble à un lecteur cassé. -->
       <p class="card-sub avert" id="a-niveau-note" hidden>—</p>
-      <p class="card-sub" id="a-scores_fenetres-note" hidden>—</p>
+      <p class="card-sub" id="a-noisy-note" hidden>—</p>
 
       <div class="table-scroll">
         <table id="analyse-table">
@@ -438,7 +438,7 @@
   <p id="footer-info">—</p>
 </footer>
 
-<script src="listen.js?v=22"></script>
-<script src="timeline.js?v=22"></script>
+<script src="listen.js?v=23"></script>
+<script src="timeline.js?v=23"></script>
 </body>
 </html>

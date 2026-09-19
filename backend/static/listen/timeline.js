@@ -211,7 +211,7 @@ function rend(data) {
   $('a-duree').textContent = a.total_duration_sec == null
     ? '—' : decimal(a.total_duration_sec.toFixed(1)) + ' s';
   $('a-fenetres').textContent = a.frames == null ? '—' : String(a.frames);
-  $('a-scores_fenetres').textContent = a.noisy_max == null ? '—' : decimal(a.noisy_max.toFixed(3));
+  $('a-noisy').textContent = a.noisy_max == null ? '—' : decimal(a.noisy_max.toFixed(3));
   const fenetres = (a.noisy_frames || []).length;
   $('a-retenues').textContent = a.frames == null ? '—' : String(fenetres);
   $('a-niveau').textContent = a.peak_dbfs == null
@@ -233,12 +233,12 @@ function rend(data) {
 
   // Le score cible, séparément de l'argmax : c'est ici qu'on voit l'écart entre « ce
   // qu'il a entendu » et « ce qu'il a décidé ».
-  const note = $('a-scores_fenetres-note');
+  const note = $('a-noisy-note');
   if (a.noisy_best) {
     const b = a.noisy_best;
     note.hidden = false;
     if (fenetres > 0) {
-      note.className = 'card-sub scores_fenetres';
+      note.className = 'card-sub noisy';
       note.textContent =
         'Événement détecté : ' + fenetres + ' fenêtre(s) au-dessus du seuil ' +
         decimal((a.noisy_threshold || 0).toFixed(2)) + '.';
@@ -310,7 +310,7 @@ function rend(data) {
     // C'est le seul endroit où l'on voit qu'un événement peut se cacher sous
     // une classe parente ou sous du bruit ambiant.
     if (estRetenue(s)) {
-      tr.className = 'scores_fenetres';
+      tr.className = 'noisy';
       tdS.textContent += '  ⚠ événement détecté dans cette fenêtre';
     }
 

@@ -635,13 +635,13 @@ dialog#analyse::backdrop {
 /* Une ligne dont la fenêtre contient un événement détecté, même quand l'étiquette
    dominante dit autre chose. Fond teinté ET bordure : la couleur seule ne
    suffit pas à signaler. */
-tr.scores_fenetres,
+tr.noisy,
 tr.retenu {
   background: color-mix(in srgb, var(--accent) 14%, transparent);
   box-shadow: inset 3px 0 0 var(--accent);
 }
 
-.card-sub.scores_fenetres,
+.card-sub.noisy,
 .card-sub.retenu {
   color: var(--accent);
   font-weight: 600;

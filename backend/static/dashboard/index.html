@@ -9,12 +9,12 @@
   (function() {
     try {
       var p = new URLSearchParams(window.location.search).get('theme');
-      var t = p || localStorage.getItem('noisygram.theme') || localStorage.getItem('noisygram.theme');
+      var t = p || localStorage.getItem('noisygram.theme') || localStorage.getItem('aboigramme.theme');
       if (t) document.documentElement.dataset.theme = t;
     } catch (e) {}
   })();
 </script>
-<link rel="stylesheet" href="style.css?v=16">
+<link rel="stylesheet" href="style.css?v=17">
 </head>
 <body>
 
@@ -286,6 +286,6 @@
 </footer>
 
 <script src="/vendor/chart.umd.min.js"></script>
-<script src="dashboard.js?v=21"></script>
+<script src="dashboard.js?v=22"></script>
 </body>
 </html>

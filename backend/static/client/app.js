@@ -1482,7 +1482,7 @@ function appliqueTheme(theme) {
   else delete document.documentElement.dataset.theme;
   try {
     localStorage.setItem('noisygram.theme', theme || '');
-    localStorage.setItem('noisygram.theme', theme || '');
+    localStorage.setItem('aboigramme.theme', theme || '');
   } catch (e) {}
   majBoutonTheme();
 }
@@ -1490,7 +1490,7 @@ function appliqueTheme(theme) {
 function initTheme() {
   const urlTheme = new URLSearchParams(window.location.search).get('theme');
   const enregistre = urlTheme || (() => {
-    try { return localStorage.getItem('noisygram.theme') || localStorage.getItem('noisygram.theme'); } catch (e) { return null; }
+    try { return localStorage.getItem('noisygram.theme') || localStorage.getItem('aboigramme.theme'); } catch (e) { return null; }
   })();
   if (enregistre) {
     appliqueTheme(enregistre);
@@ -1506,7 +1506,7 @@ function initTheme() {
   }
 
   window.addEventListener('storage', (e) => {
-    if (e.key === 'noisygram.theme' || e.key === 'noisygram.theme') {
+    if (e.key === 'noisygram.theme' || e.key === 'aboigramme.theme') {
       appliqueTheme(e.newValue || null);
     }
   });
