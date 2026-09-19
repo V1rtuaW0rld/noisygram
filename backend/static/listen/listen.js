@@ -435,33 +435,66 @@ const pagination = {
 // alors dans « (vide) », qui est un choix comme un autre — beaucoup
 // d'événements n'ont jamais été évalués par le QC.
 
+// Deux formes de filtre, et deux seulement :
+//   • `nombre` / `date` → une plage (de… à…). Réservée aux colonnes très
+//     dispersées, où cocher les valeurs n'aurait aucun sens : l'identifiant
+//     (616 valeurs distinctes) et la durée (155).
+//   • `valeurs` → la liste des valeurs observées, à cocher. C'est la bonne
+//     forme pour un score ou un compteur, dont l'ensemble est petit et fermé.
+//
+// `cle` est optionnelle : c'est la clé de comparaison quand elle diffère de
+// la valeur brute. Les scores YAMNet sont quantifiés au 1/128, donc 221
+// valeurs brutes s'affichent en 133 — sans cette clé, l'utilisateur verrait
+// des cases rigoureusement identiques. On filtre donc sur ce qui est AFFICHÉ,
+// comme Excel, et pas sur l'octet sous-jacent.
+function cleScore(v) {
+  return v == null || Number.isNaN(v) ? '' : decimal(v.toFixed(3));
+}
+
+function etatExclusion(e) {
+  // Reproduit EXACTEMENT la décision du rendu (voir renduPageCaptures) :
+  // bouton « Exclure », étiquette « Exclu », ou case vide. Un filtre qui
+  // divergerait de l'affichage serait pire que pas de filtre.
+  const refuse = !!(e.backend && String(e.backend).includes('refused'));
+  if (!refuse && e.qc_valid !== false) return 'exclure';
+  if (e.backend === 'refused/user_rejected' || e.qc_valid === false) return 'exclu';
+  return null;
+}
+
 const COLONNES = {
   samples: {
-    name:        { libelle: 'Fichier',  type: 'texte',  valeur: (s) => s.name },
-    duration_ms: { libelle: 'Durée',    type: 'nombre', valeur: (s) => s.duration_ms },
-    noisy_score: { libelle: 'Score',    type: 'nombre', valeur: (s) => (s.analysis ? s.analysis.noisy_score : null) },
-    qc_score:    { libelle: 'Score QC', type: 'nombre', valeur: (s) => (s.analysis ? s.analysis.qc_score : null) },
-    qc_valid:    { libelle: 'QC',       type: 'enum',   valeur: (s) => (s.analysis ? s.analysis.qc_valid : null) },
-    densite:     { libelle: 'Densité',  type: 'nombre', valeur: (s) => (s.analysis ? s.analysis.windows_retenues : null) },
-    niveau:      { libelle: 'Niveau',   type: 'nombre', valeur: (s) => (s.analysis ? s.analysis.peak_dbfs : null) },
-    'analysé':   { libelle: 'Analysé',  type: 'enum',
+    name:        { libelle: 'Fichier',  type: 'valeurs', valeur: (s) => s.name },
+    duration_ms: { libelle: 'Durée',    type: 'nombre',  valeur: (s) => s.duration_ms },
+    noisy_score: { libelle: 'Score',    type: 'valeurs', cle: cleScore, valeur: (s) => (s.analysis ? s.analysis.noisy_score : null) },
+    qc_score:    { libelle: 'Score QC', type: 'valeurs', cle: cleScore, valeur: (s) => (s.analysis ? s.analysis.qc_score : null) },
+    qc_valid:    { libelle: 'QC',       type: 'valeurs', valeur: (s) => (s.analysis ? s.analysis.qc_valid : null) },
+    densite:     { libelle: 'Densité',  type: 'nombre',  valeur: (s) => (s.analysis ? s.analysis.windows_retenues : null) },
+    niveau:      { libelle: 'Niveau',   type: 'nombre',  valeur: (s) => (s.analysis ? s.analysis.peak_dbfs : null) },
+    'analysé':   { libelle: 'Analysé',  type: 'valeurs',
                    valeur: (s) => (!s.analysis ? 'non' : (s.stale ? 'périmé' : 'oui')) },
   },
   captures: {
-    id:          { libelle: 'N°',       type: 'nombre', valeur: (e) => e.id },
-    detected_at: { libelle: 'Quand',    type: 'date',   valeur: (e) => new Date(e.detected_at) },
-    duration_ms: { libelle: 'Durée',    type: 'nombre', valeur: (e) => e.duration_ms },
-    noisy_score: { libelle: 'Score',    type: 'nombre', valeur: (e) => e.noisy_score },
-    qc_score:    { libelle: 'Score QC', type: 'nombre', valeur: (e) => e.qc_score },
-    qc_valid:    { libelle: 'QC',       type: 'enum',   valeur: (e) => e.qc_valid },
-    noisy_count: { libelle: 'Rafales',  type: 'nombre', valeur: (e) => e.noisy_count },
+    id:          { libelle: 'N°',       type: 'nombre',  valeur: (e) => e.id },
+    detected_at: { libelle: 'Quand',    type: 'date',    valeur: (e) => new Date(e.detected_at) },
+    duration_ms: { libelle: 'Durée',    type: 'nombre',  valeur: (e) => e.duration_ms },
+    noisy_score: { libelle: 'Score',    type: 'valeurs', cle: cleScore, valeur: (e) => e.noisy_score },
+    qc_score:    { libelle: 'Score QC', type: 'valeurs', cle: cleScore, valeur: (e) => e.qc_score },
+    qc_valid:    { libelle: 'QC',       type: 'valeurs', valeur: (e) => e.qc_valid },
+    noisy_count: { libelle: 'Rafales',  type: 'valeurs', valeur: (e) => e.noisy_count },
+    exclu:       { libelle: 'Exclure',  type: 'valeurs', valeur: etatExclusion,
+                   libelles: { exclure: 'Exclure', exclu: 'Exclu' } },
   },
   candidats: {
-    id:             { libelle: 'N°',       type: 'nombre', valeur: (c) => c.id },
-    detected_at:    { libelle: 'Quand',    type: 'date',   valeur: (c) => new Date(c.detected_at) },
-    duration_ms:    { libelle: 'Durée',    type: 'nombre', valeur: (c) => c.duration_ms },
-    qc_score:       { libelle: 'Score QC', type: 'nombre', valeur: (c) => c.qc_score },
-    snippets_count: { libelle: 'Extraits', type: 'nombre', valeur: (c) => c.snippets_count },
+    id:             { libelle: 'N°',       type: 'nombre',  valeur: (c) => c.id },
+    detected_at:    { libelle: 'Quand',    type: 'date',    valeur: (c) => new Date(c.detected_at) },
+    duration_ms:    { libelle: 'Durée',    type: 'nombre',  valeur: (c) => c.duration_ms },
+    qc_score:       { libelle: 'Score QC', type: 'valeurs', cle: cleScore, valeur: (c) => c.qc_score },
+    snippets_count: { libelle: 'Extraits', type: 'nombre',  valeur: (c) => c.snippets_count },
+    // Ici le rendu n'a que deux états : `isRefused` décide, sans le cas vide
+    // des capturés (voir afficheCandidatsQC).
+    exclu:          { libelle: 'Exclure',  type: 'valeurs',
+                      valeur: (c) => (c.backend && String(c.backend).includes('refused') ? 'exclu' : 'exclure'),
+                      libelles: { exclure: 'Exclure', exclu: 'Exclu' } },
   },
 };
 
@@ -488,12 +521,18 @@ function cleValeur(v) {
   return String(v);
 }
 
-function libelleValeur(v) {
-  const c = cleValeur(v);
-  if (c === '') return '(vide)';
-  if (c === 'true') return 'Vrai';
-  if (c === 'false') return 'Faux';
-  return c;
+// La clé de comparaison d'une valeur : celle du descripteur quand il en a une
+// (les scores, pour filtrer sur ce qui est affiché), la valeur brute sinon.
+function cleDe(desc, v) {
+  return desc && desc.cle ? desc.cle(v) : cleValeur(v);
+}
+
+function libelleDepuisCle(cle, desc) {
+  if (cle === '') return '(vide)';
+  if (desc && desc.libelles && desc.libelles[cle] != null) return desc.libelles[cle];
+  if (cle === 'true') return 'Vrai';
+  if (cle === 'false') return 'Faux';
+  return cle;
 }
 
 function filtreActif(table, col) {
@@ -532,7 +571,7 @@ function filtreLignes(table, items) {
     const desc = cols[col];
 
     if (f.valeurs && f.valeurs.size) {
-      out = out.filter((it) => f.valeurs.has(cleValeur(desc.valeur(it))));
+      out = out.filter((it) => f.valeurs.has(cleDe(desc, desc.valeur(it))));
     }
     if (desc.type === 'nombre') {
       if (f.min != null) out = out.filter((it) => { const v = desc.valeur(it); return v != null && v >= f.min; });
@@ -720,15 +759,20 @@ function dessineFiltre() {
     }
     blocF.appendChild(wrap);
   } else {
-    // enum ou texte : recherche + cases à cocher, comme Excel.
+    // Liste des valeurs observées, à cocher : la forme Excel.
     const valeurs = new Map();
     for (const it of rows) {
-      const v = desc.valeur(it);
-      const c = cleValeur(v);
-      if (!valeurs.has(c)) valeurs.set(c, libelleValeur(v));
+      const c = cleDe(desc, desc.valeur(it));
+      if (!valeurs.has(c)) valeurs.set(c, libelleDepuisCle(c, desc));
     }
-    const cles = [...valeurs.keys()].sort((a, b) =>
-      valeurs.get(a).localeCompare(valeurs.get(b), 'fr', { numeric: true }));
+    // « (vide) » EN PREMIER, juste sous le tri. C'est la valeur qu'on cherche
+    // le plus souvent — la majorité des événements n'ont jamais été évalués
+    // par le QC — et un tri alphabétique classique l'enterrerait.
+    const cles = [...valeurs.keys()].sort((a, b) => {
+      if (a === '') return -1;
+      if (b === '') return 1;
+      return valeurs.get(a).localeCompare(valeurs.get(b), 'fr', { numeric: true });
+    });
 
     const rech = document.createElement('input');
     rech.type = 'search';
