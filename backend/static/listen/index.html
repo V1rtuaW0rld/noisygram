@@ -1,0 +1,444 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Noisygram — Écouter</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%232f6f4e'/%3E%3Cpath d='M7 16v0m3-4v8m3-7v6m3-10v14m3-11v8m3-6v4m3-2v0' stroke='white' stroke-width='2.2' stroke-linecap='round'/%3E%3C/svg%3E">
+<script>
+  (function() {
+    try {
+      var p = new URLSearchParams(window.location.search).get('theme');
+      var t = p || localStorage.getItem('noisygram.theme') || localStorage.getItem('aboigramme.theme');
+      if (t) document.documentElement.dataset.theme = t;
+    } catch (e) {}
+  })();
+</script>
+<link rel="stylesheet" href="style.css?v=20">
+</head>
+<body>
+
+<header>
+  <div class="header-left">
+    <h1><a href="https://noisy.virtuaworld.org/dashboard/" class="titre-lien">Noisygram</a></h1>
+    <p class="sub" id="header-sub">Écouter en direct — ce que le poste extérieur entend, maintenant.</p>
+  </div>
+  <nav class="header-center">
+    <!-- URL absolue en dur pour le dashboard : un « /dashboard/ » relatif
+         viserait l'hôte de cette page, qui n'a pas cette route. -->
+    <a href="https://noisy.virtuaworld.org/dashboard/" class="nav-item">📊 Dashboard</a>
+    <span class="nav-item active" aria-current="page">🎧 ECOUTER</span>
+    <button type="button" id="btn-qc" class="nav-item btn-qc" style="background:none;border:none;cursor:pointer;font:inherit;">🎯 Quality Center</button>
+  </nav>
+  <div class="header-right">
+    <span class="direct" id="lien" data-etat="attente" role="status" aria-live="polite">
+      <span class="direct-dot" aria-hidden="true"></span>
+      <span id="lien-texte">déconnecté</span>
+    </span>
+    <button id="theme" type="button" class="btn-theme" title="Passer au mode sombre" aria-label="Passer au mode sombre">
+      <svg class="icon-theme icon-sun" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="#e5a50a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="4.5" fill="#e5a50a" stroke="none"/>
+        <line x1="12" y1="2" x2="12" y2="4.5"/>
+        <line x1="12" y1="19.5" x2="12" y2="22"/>
+        <line x1="4.22" y1="4.22" x2="5.99" y2="5.99"/>
+        <line x1="18.01" y1="18.01" x2="19.78" y2="19.78"/>
+        <line x1="2" y1="12" x2="4.5" y2="12"/>
+        <line x1="19.5" y1="12" x2="22" y2="12"/>
+        <line x1="4.22" y1="19.78" x2="5.99" y2="18.01"/>
+        <line x1="18.01" y1="5.99" x2="19.78" y2="4.22"/>
+      </svg>
+    </button>
+  </div>
+</header>
+
+<main>
+
+  <!-- ⚠️ L'avertissement de larsen est EN TÊTE et pas en bas de page. Le micro
+       du poste est à l'extérieur, mais si l'opérateur est sur place — ou pire,
+       sur le même PC avec deux onglets — le son ressort par ses haut-parleurs,
+       rentre dans le micro, et siffle en 200 ms. C'est le seul mode de panne de
+       cette page qui soit désagréable plutôt que simplement inutile. -->
+  <p class="avertissement">
+    Le son sort par vos haut-parleurs. Si vous êtes sur place, coupez le son
+    ou mettez un casque — sans quoi le micro du poste le reprend et cela siffle.
+  </p>
+
+  <section class="card">
+    <div class="card-head">
+      <h2>Direct</h2>
+      <button type="button" id="ecouter">Écouter 60 s</button>
+      <button type="button" id="arreter" hidden>Arrêter</button>
+    </div>
+    <p class="card-sub" id="etat">Prêt. Le poste extérieur sera mis en écoute pour une minute.</p>
+
+    <div class="rangee">
+      <button type="button" id="muet" aria-pressed="false">Couper le son</button>
+      <label class="volume">
+        Volume
+        <input type="range" id="volume" min="0" max="100" value="50">
+      </label>
+      <!-- Le vumètre est la preuve VISUELLE que quelque chose arrive, y compris
+           quand la pièce est silencieuse : sans lui, « je n'entends rien » ne se
+           distingue pas de « rien n'arrive ». -->
+      <span class="niveau"><span class="niveau-barre" id="niveau"></span></span>
+    </div>
+
+    <dl class="releve">
+      <div><dt>Reçu</dt><dd id="r-recu">—</dd></div>
+      <div><dt>Fenêtres</dt><dd id="r-fenetres">—</dd></div>
+      <div><dt>Score max</dt><dd id="r-score">—</dd></div>
+      <div><dt>Morceaux perdus</dt><dd id="r-perdus">—</dd></div>
+    </dl>
+  </section>
+
+  <!-- Sélecteur d'affichage pour basculer sans scroller entre Les directs et Les capturés -->
+  <div class="switch-bar">
+    <div class="table-switcher" role="tablist">
+      <button type="button" id="tab-directs" class="tab-btn active" role="tab" aria-selected="true" aria-controls="section-directs">
+        <span class="tab-icon">🎧</span>
+        <span class="tab-title">Les directs</span>
+        <span class="tab-badge" id="badge-directs">0</span>
+      </button>
+      <button type="button" id="btn-switch-tables" class="tab-toggle-btn" title="Basculer l'affichage (Les directs ⇄ Les capturés)" aria-label="Basculer l'affichage">
+        <svg class="icon-swap" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M7 16V4m0 0L3 8m4-4l4 4m10 4v12m0 0l4-4m-4 4l-4-4"/>
+        </svg>
+        <span>Basculer</span>
+      </button>
+      <button type="button" id="tab-captures" class="tab-btn" role="tab" aria-selected="false" aria-controls="section-captures">
+        <span class="tab-icon">🎯</span>
+        <span class="tab-title">Les capturés</span>
+        <span class="tab-badge" id="badge-captures">0</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- « Les directs » : ce qu'on a demandé à écouter, et qui a été enregistré
+       au passage. Un fichier par écoute, dans export/. -->
+  <section class="card" id="section-directs">
+    <div class="card-head">
+      <div class="card-head-left">
+        <h2>Les directs</h2>
+      </div>
+      <div class="card-head-center">
+        <label class="pagination-taille-wrap">
+          <select id="samples-taille" class="pagination-select" aria-label="Nombre d'éléments par page">
+            <option value="10">10 / page</option>
+            <option value="20" selected>20 / page</option>
+            <option value="30">30 / page</option>
+            <option value="40">40 / page</option>
+            <option value="50">50 / page</option>
+            <option value="60">60 / page</option>
+            <option value="70">70 / page</option>
+            <option value="80">80 / page</option>
+            <option value="90">90 / page</option>
+            <option value="100">100 / page</option>
+          </select>
+        </label>
+        <div class="pagination-nav" role="navigation" aria-label="Pagination des directs">
+          <button type="button" class="btn-page" id="samples-premier" title="Première page" aria-label="Première page">««</button>
+          <button type="button" class="btn-page" id="samples-precedent" title="Page précédente" aria-label="Page précédente">«</button>
+          <span class="page-indicateur" id="samples-indicateur">Page 1 / 1</span>
+          <button type="button" class="btn-page" id="samples-suivant" title="Page suivante" aria-label="Page suivante">»</button>
+          <button type="button" class="btn-page" id="samples-dernier" title="Dernière page" aria-label="Dernière page">»»</button>
+        </div>
+      </div>
+      <div class="card-head-right">
+        <button type="button" id="rafraichir" class="btn-rafraichir" title="Rafraîchir les directs">
+          <svg class="icon-refresh" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/>
+          </svg>
+          <span>Rafraîchir</span>
+        </button>
+      </div>
+    </div>
+    <p class="card-sub" id="samples-sub">Chargement…</p>
+
+    <!-- Lecteur NATIF, comme pour la rafale du dashboard : un lecteur maison
+         n'apporterait rien et devrait réimplémenter la barre de progression,
+         le volume et le clavier. -->
+    <audio id="player" controls preload="none"></audio>
+    <p class="card-sub" id="player-sub">Cliquez un sample pour le réécouter.</p>
+
+    <div class="table-scroll">
+      <table id="samples">
+        <thead>
+          <tr>
+            <th class="th-play"></th>
+            <th>Fichier</th>
+            <th>Durée</th>
+            <th>Score</th>
+            <th>Score QC</th>
+            <th>QC</th>
+            <th>Densité</th>
+            <th>Niveau</th>
+            <th>Analysé</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="samples-corps"></tbody>
+      </table>
+    </div>
+    <p class="empty" id="samples-vide" hidden>Aucun sample pour l'instant.</p>
+    <p class="card-sub" id="poids">—</p>
+  </section>
+
+  <!-- « Les capturés » : ce que le POSTE a décidé de garder tout seul, sans
+       qu'on lui demande rien. C'est la table `events` — déjà en base, déjà
+       servie par l'admin. Le MP3 est celui de l'archive. -->
+  <section class="card" id="section-captures" hidden>
+    <div class="card-head">
+      <div class="card-head-left">
+        <h2>Les capturés</h2>
+      </div>
+      <div class="card-head-center">
+        <label class="pagination-taille-wrap">
+          <select id="captures-taille" class="pagination-select" aria-label="Nombre d'éléments par page">
+            <option value="10">10 / page</option>
+            <option value="20" selected>20 / page</option>
+            <option value="30">30 / page</option>
+            <option value="40">40 / page</option>
+            <option value="50">50 / page</option>
+            <option value="60">60 / page</option>
+            <option value="70">70 / page</option>
+            <option value="80">80 / page</option>
+            <option value="90">90 / page</option>
+            <option value="100">100 / page</option>
+          </select>
+        </label>
+        <div class="pagination-nav" role="navigation" aria-label="Pagination des capturés">
+          <button type="button" class="btn-page" id="captures-premier" title="Première page" aria-label="Première page">««</button>
+          <button type="button" class="btn-page" id="captures-precedent" title="Page précédente" aria-label="Page précédente">«</button>
+          <span class="page-indicateur" id="captures-indicateur">Page 1 / 1</span>
+          <button type="button" class="btn-page" id="captures-suivant" title="Page suivante" aria-label="Page suivante">»</button>
+          <button type="button" class="btn-page" id="captures-dernier" title="Dernière page" aria-label="Dernière page">»»</button>
+        </div>
+      </div>
+      <div class="card-head-right">
+        <button type="button" id="captures-rafraichir" class="btn-rafraichir" title="Rafraîchir les capturés">
+          <svg class="icon-refresh" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/>
+          </svg>
+          <span>Rafraîchir</span>
+        </button>
+      </div>
+    </div>
+    <p class="card-sub" id="captures-sub">Chargement…</p>
+
+    <!-- Son lecteur À ELLE. Un seul lecteur partagé obligeait la liste des
+         directs et celle des capturés à se disputer la même source : on
+         cliquait « Écouter » sur une capture et la barre de progression du
+         tableau au-dessus changeait. Deux tables, deux lecteurs. -->
+    <audio id="captures-player" controls preload="none"></audio>
+    <p class="card-sub" id="captures-player-sub">Cliquez une capture pour l'écouter.</p>
+
+    <div class="table-scroll">
+      <table id="captures">
+        <thead>
+          <tr>
+            <th class="th-play"></th>
+            <th>N°</th>
+            <th>Quand</th>
+            <th>Durée</th>
+            <th>Score</th>
+            <th>Score QC</th>
+            <th>QC</th>
+            <th>Rafales</th>
+            <th style="width: 76px; text-align: center;"></th>
+            <th style="width: 76px; text-align: right;"></th>
+          </tr>
+        </thead>
+        <tbody id="captures-corps"></tbody>
+      </table>
+    </div>
+    <p class="empty" id="captures-vide" hidden>Aucune capture pour l'instant.</p>
+  </section>
+</main>
+
+<!-- Modale d'analyse. Un `<dialog>` natif : il apporte Échap, le piège de
+     focus et l'inertie de l'arrière-plan sans une ligne de JavaScript. Le
+     `padding: 0` est délibéré — il ne contient qu'une boîte, donc tout clic
+     dont la cible est le dialogue lui-même est un clic « à côté », qui ferme. -->
+<dialog id="analyse" aria-labelledby="analyse-titre">
+  <div class="modale-boite">
+
+    <header class="modale-tete">
+      <h2 id="analyse-titre">Ce que le système a entendu</h2>
+      <button type="button" id="analyse-fermer" class="modale-croix"
+              aria-label="Fermer">&times;</button>
+    </header>
+
+    <p class="card-sub" id="analyse-fichier">—</p>
+
+    <!-- Le lecteur du sample que cette modale présente — celui de la ligne dont
+         on a cliqué « Analyser ». Natif, comme les deux autres.
+
+         Un `<audio>` dans un `<dialog>` fonctionne : vérifié sur un cas minimal
+         dans les DEUX modes de rendu (headless et vrai Chrome), `src` posé
+         avant comme après `showModal()`. La panne qu'on a cherchée ici n'était
+         donc pas le dialogue, et il ne faut pas la chercher là. -->
+    <audio id="analyse-player" controls preload="metadata"></audio>
+    <p class="card-sub avert" id="analyse-player-note" hidden>—</p>
+
+    <p class="card-sub" id="analyse-etat">—</p>
+
+    <div id="analyse-corps" hidden>
+      <dl class="releve">
+        <div><dt>Durée</dt><dd id="a-duree">—</dd></div>
+        <div><dt>Fenêtres</dt><dd id="a-fenetres">—</dd></div>
+        <div><dt>Score max</dt><dd id="a-canin">—</dd></div>
+        <div><dt>Fenêtres retenues</dt><dd id="a-retenues">—</dd></div>
+        <div><dt>Niveau (pic)</dt><dd id="a-niveau">—</dd></div>
+      </dl>
+
+      <!-- Le niveau AVANT le score : un sample muet explique tout le reste, et
+           sans ce bandeau il ressemble à un lecteur cassé. -->
+      <p class="card-sub avert" id="a-niveau-note" hidden>—</p>
+      <p class="card-sub" id="a-canin-note" hidden>—</p>
+
+      <div class="table-scroll">
+        <table id="analyse-table">
+          <thead>
+            <tr><th>Intervalle</th><th>Son entendu</th><th>Score</th><th style="width: 76px; text-align: center;">Best-of</th></tr>
+          </thead>
+          <tbody id="analyse-lignes"></tbody>
+        </table>
+      </div>
+      <p class="empty" id="analyse-vide" hidden>
+        Rien au-dessus du seuil d'affichage.
+      </p>
+    </div>
+
+    <footer class="modale-pied">
+      <span class="card-sub" id="analyse-horodatage">—</span>
+      <button type="button" id="analyse-relancer">Relancer l'analyse</button>
+    </footer>
+
+  </div>
+</dialog>
+
+<dialog id="modal-qc" aria-labelledby="qc-titre">
+  <div class="modale-boite">
+    <header class="modale-tete">
+      <h2 id="qc-titre">🎯 Quality Center — Contrôle Acoustique &amp; Calibrage</h2>
+      <button type="button" id="qc-fermer" class="modale-croix" aria-label="Fermer">&times;</button>
+    </header>
+
+    <div class="qc-grid-container">
+      <!-- Colonne Gauche : Grille de seuils par durée -->
+      <section class="qc-panel">
+        <h3 class="qc-panel-title">
+          <span>Seuils requis par durée</span>
+          <span class="qc-badge-status" id="qc-service-status">QC Actif</span>
+        </h3>
+        <p class="card-sub" style="margin: 0 0 8px;">
+          Similarité minimale (%) exigée contre la référence acoustique selon la durée du son.
+        </p>
+
+        <div class="table-scroll" style="max-height: 380px;">
+          <table class="qc-thresholds-table">
+            <thead>
+              <tr>
+                <th>Tranche de durée</th>
+                <th style="text-align:right;">Seuil (%)</th>
+              </tr>
+            </thead>
+            <tbody id="qc-seuils-corps">
+              <!-- Rempli dynamiquement -->
+            </tbody>
+          </table>
+        </div>
+
+        <div style="display:flex; align-items:center; justify-content:space-between; margin-top:10px;">
+          <button type="button" id="qc-sauver-seuils" class="btn-primary">Enregistrer les seuils</button>
+          <span id="qc-statut-seuils" class="card-sub" style="margin:0;"></span>
+        </div>
+      </section>
+
+      <!-- Colonne Droite : Échantillons de référence & candidats (Onglets) -->
+      <section class="qc-panel">
+        <div class="qc-tabs-bar" role="tablist" aria-label="Gestion des références acoustiques">
+          <button type="button" id="qc-tab-candidats" class="qc-tab-btn active" role="tab" aria-selected="true">
+            <span>🎯 Candidats YAMNet</span>
+            <span class="qc-tab-badge" id="qc-candidats-count">0</span>
+          </button>
+          <button type="button" id="qc-tab-bestof" class="qc-tab-btn" role="tab" aria-selected="false">
+            <span>⭐ Best-of Références</span>
+            <span class="qc-tab-badge qc-badge-gold" id="qc-bestof-count">0</span>
+          </button>
+          <span class="qc-badge-ref" id="qc-ref-count" hidden>1 active</span>
+        </div>
+
+        <audio id="qc-player" controls preload="none" style="width: 100%; margin-bottom: 4px;"></audio>
+        <p class="card-sub" id="qc-player-sub" style="margin: 0 0 6px;">Cliquez ▶ pour écouter.</p>
+
+        <!-- Onglet 1 : Candidats YAMNet -->
+        <div id="qc-vue-candidats" class="qc-tab-content">
+          <p class="card-sub" style="margin: 0 0 8px;">
+            Cliquez <strong>Analyser</strong> pour examiner les segments d'une capture et extraire les sons caractéristiques au Best-of :
+          </p>
+          <div class="table-scroll" style="max-height: 320px; overflow-y: auto;">
+            <table id="qc-table-candidats" class="qc-candidates-table">
+              <thead>
+                <tr>
+                  <th style="width: 32px;"></th>
+                  <th>N°</th>
+                  <th>Quand</th>
+                  <th>Durée</th>
+                  <th>Score QC</th>
+                  <th style="width: 70px; text-align: center;">Extraits</th>
+                  <th style="width: 80px; text-align: center;">Analyser</th>
+                  <th style="width: 70px; text-align: right;"></th>
+                </tr>
+              </thead>
+              <tbody id="qc-candidats-corps">
+                <!-- Rempli dynamiquement -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Onglet 2 : Catalogue Best-of Références -->
+        <div id="qc-vue-bestof" class="qc-tab-content" hidden>
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 6px;">
+            <p class="card-sub" style="margin: 0;">
+              Extraits nets actifs (avec <code>Aboiements.wav</code> de base) :
+            </p>
+            <button type="button" id="qc-rebuild-btn" class="btn-primary" style="padding: 3px 10px; font-size: 11px;">Reconstruire</button>
+          </div>
+          <div class="table-scroll" style="max-height: 320px; overflow-y: auto;">
+            <table id="qc-table-bestof" class="qc-candidates-table">
+              <thead>
+                <tr>
+                  <th style="width: 32px;"></th>
+                  <th>Source</th>
+                  <th>Intervalle</th>
+                  <th>Durée</th>
+                  <th>Son / Score</th>
+                  <th style="width: 44px; text-align: center;"></th>
+                </tr>
+              </thead>
+              <tbody id="qc-bestof-corps">
+                <!-- Rempli dynamiquement -->
+              </tbody>
+            </table>
+          </div>
+          <p class="empty" id="qc-bestof-vide" hidden>Aucun extrait fin sélectionné pour l'instant. Utilisez le bouton « Analyser » dans Candidats pour en ajouter !</p>
+        </div>
+      </section>
+    </div>
+
+    <footer class="modale-pied">
+      <span class="card-sub" id="qc-footer-info">Microservice QC : comparaison d'empreintes acoustiques YAMNet (1024-d).</span>
+    </footer>
+  </div>
+</dialog>
+
+<footer>
+  <p id="footer-info">—</p>
+</footer>
+
+<script src="listen.js?v=22"></script>
+<script src="timeline.js?v=22"></script>
+</body>
+</html>

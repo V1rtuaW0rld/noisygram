@@ -1,0 +1,43 @@
+.env
+.env.*
+!.env.example
+
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.claude/
+
+# Téléchargés au build, vérifiés par SHA-256 — jamais versionnés.
+backend/models/*
+!backend/models/.gitkeep
+backend/static/vendor/*
+!backend/static/vendor/.gitkeep
+
+# Échantillons de référence & enregistrements audio personnels et volumineux
+*.wav
+*.mp3
+*.flac
+*.ogg
+*.m4a
+*.aac
+*.npy
+*.tflite
+!samples/README.md
+
+# Dumps, médias et bases de données
+export/
+media/
+*.db
+*.sqlite
+*.sqlite3
+*.sql
+pgdata/
+data/
+
+# IDE / OS
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~

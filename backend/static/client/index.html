@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Noisygram — Capture</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%231f6feb'/%3E%3Cpath d='M7 16v0m3-4v8m3-7v6m3-10v14m3-11v8m3-6v4m3-2v0' stroke='white' stroke-width='2.2' stroke-linecap='round'/%3E%3C/svg%3E">
+<script>
+  (function() {
+    try {
+      var p = new URLSearchParams(window.location.search).get('theme');
+      var t = p || localStorage.getItem('noisygram.theme') || localStorage.getItem('aboigramme.theme');
+      if (t) document.documentElement.dataset.theme = t;
+    } catch (e) {}
+  })();
+</script>
+<link rel="stylesheet" href="style.css?v=16">
+</head>
+<body>
+
+<!-- Bandeau de préflight. Masqué par défaut : il ne s'affiche que si le
+     contexte n'est pas sécurisé, auquel cas RIEN d'autre ne peut marcher. -->
+<div id="preflight" class="banner banner--error" hidden>
+  <strong>Le microphone est inaccessible depuis cette origine.</strong>
+  <p>
+    Chrome et Firefox ne donnent accès au micro que sur <code>https://</code> ou
+    <code>localhost</code>. Depuis <code id="pf-origin">…</code>, l'objet
+    <code>navigator.mediaDevices</code> est <em>indéfini</em> — l'échec est
+    total, pas partiel.
+  </p>
+  <p>
+    Ce n'est pas une question de permission, et aucun réglage du navigateur
+    dans cette page n'y changera quoi que ce soit.
+    <a href="/docs/CHROME_INSECURE_ORIGIN.md">Procédure de contournement →</a>
+  </p>
+</div>
+
+<header>
+  <div class="header-left">
+    <h1><a href="https://noisy.virtuaworld.org/dashboard/" class="titre-lien">Noisygram</a></h1>
+  </div>
+  <nav class="header-center">
+    <a href="https://noisy.virtuaworld.org/dashboard/" class="nav-item">📊 Dashboard</a>
+    <a href="https://noisy.virtuaworld.org/listen/" class="nav-item">🎧 ECOUTER</a>
+  </nav>
+  <div class="header-right">
+    <button id="theme" type="button" class="btn-theme" title="Passer au mode sombre" aria-label="Passer au mode sombre">
+      <svg class="icon-theme icon-sun" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="#e5a50a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="4.5" fill="#e5a50a" stroke="none"/>
+        <line x1="12" y1="2" x2="12" y2="4.5"/>
+        <line x1="12" y1="19.5" x2="12" y2="22"/>
+        <line x1="4.22" y1="4.22" x2="5.99" y2="5.99"/>
+        <line x1="18.01" y1="18.01" x2="19.78" y2="19.78"/>
+        <line x1="2" y1="12" x2="4.5" y2="12"/>
+        <line x1="19.5" y1="12" x2="22" y2="12"/>
+        <line x1="4.22" y1="19.78" x2="5.99" y2="18.01"/>
+        <line x1="18.01" y1="5.99" x2="19.78" y2="4.22"/>
+      </svg>
+    </button>
+  </div>
+</header>
+
+<main>
+  <section class="card controls card-wide">
+    <button id="toggle" type="button" disabled>Démarrer</button>
+    <ul class="pills">
+      <li class="pill" id="pill-mic"><span class="dot"></span><span class="lbl">Micro</span><span class="val">—</span></li>
+      <li class="pill" id="pill-ws"><span class="dot"></span><span class="lbl">Serveur</span><span class="val">—</span></li>
+      <li class="pill" id="pill-capture"><span class="dot"></span><span class="lbl">Capture</span><span class="val">—</span></li>
+      <li class="pill" id="pill-device"><span class="dot"></span><span class="lbl">Appareil</span><span class="val">—</span></li>
+      <li class="pill" id="pill-live"><span class="dot"></span><span class="lbl">Distant</span><span class="val">—</span></li>
+    </ul>
+  </section>
+
+  <section class="card card-wide" id="card-settings">
+    <h2>Sensibilité micro & Préamplification</h2>
+    <p class="hint">Ajustez l'amplification du micro et le seuil d'envoi selon la directivité de votre micro et la distance de la source sonore pour ne rater aucun événement.</p>
+    <div class="settings-grid">
+      <div class="setting-item">
+        <label class="setting-label" for="cfg-mic-gain">
+          <span>Préampli / Gain micro</span>
+          <span class="setting-val" id="val-mic-gain">1.0×</span>
+        </label>
+        <input type="range" id="cfg-mic-gain" class="setting-range" min="1.0" max="5.0" step="0.1" value="1.0">
+        <p class="setting-desc">Amplifie le signal du micro en direct (numérique). Idéal si le micro est faible ou la source sonore éloignée.</p>
+      </div>
+      <div class="setting-item">
+        <label class="setting-label" for="cfg-trigger-ratio">
+          <span>Ratio de déclenchement</span>
+          <span class="setting-val" id="val-trigger-ratio">2.5×</span>
+        </label>
+        <input type="range" id="cfg-trigger-ratio" class="setting-range" min="1.1" max="5.0" step="0.1" value="2.5">
+        <p class="setting-desc">Multiple du fond sonore. Plus il est bas, plus le micro réagit aux bruits faibles ou lointains.</p>
+      </div>
+      <div class="setting-item">
+        <label class="setting-label" for="cfg-min-floor">
+          <span>Plancher RMS minimum</span>
+          <span class="setting-val" id="val-min-floor">0.0040</span>
+        </label>
+        <input type="range" id="cfg-min-floor" class="setting-range" min="0.0005" max="0.0200" step="0.0005" value="0.0040">
+        <p class="setting-desc">Niveau sonore minimal absolu pour ne pas déclencher sur le souffle du micro.</p>
+      </div>
+    </div>
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-top:10px;">
+      <span class="setting-desc">Seuil RMS effectif : <strong id="val-effective-threshold" class="setting-val">—</strong></span>
+      <button type="button" id="cfg-reset" class="btn-reset">Rétablir défauts</button>
+    </div>
+  </section>
+
+  <!-- Le relevé live est l'accessoire de débogage le plus utile quand
+       quelqu'un est dehors avec un portable : on voit immédiatement si le
+       seuil est sensé, ou si le micro sort un pic à 0,002. -->
+  <section class="card">
+    <h2>Niveau</h2>
+    <dl class="readout">
+      <div><dt>RMS</dt><dd id="ro-rms">—</dd></div>
+      <div><dt>Fond (médiane)</dt><dd id="ro-bg">—</dd></div>
+      <div><dt>Ratio</dt><dd id="ro-ratio">—</dd></div>
+      <div><dt>Pic</dt><dd id="ro-peak">—</dd></div>
+      <div><dt>Seuil</dt><dd id="ro-threshold">—</dd></div>
+      <div><dt>Trames</dt><dd id="ro-frames">—</dd></div>
+    </dl>
+    <div class="meter"><div class="meter-fill" id="meter"></div></div>
+  </section>
+
+  <section class="card">
+    <h2>Trafic</h2>
+    <dl class="readout">
+      <div><dt>Envoyés</dt><dd id="c-sent">0</dd></div>
+      <div><dt>Acceptés</dt><dd id="c-accepted">0</dd></div>
+      <div><dt>Refusés</dt><dd id="c-rejected">0</dd></div>
+      <div><dt>Erreurs</dt><dd id="c-errors">0</dd></div>
+      <div><dt>File</dt><dd id="c-queue">0</dd></div>
+      <div><dt>Dernier score</dt><dd id="c-score">—</dd></div>
+    </dl>
+  </section>
+
+  <!-- Écouter le dernier MP3 accepté vérifie la qualité audio de bout en bout
+       sans passer par le dashboard. -->
+  <section class="card">
+    <h2>Dernier accepté</h2>
+    <audio id="player" controls preload="none"></audio>
+    <p class="hint" id="player-hint">Aucun événement accepté pour l'instant.</p>
+  </section>
+
+  <!-- L'opérateur n'ouvrira pas la console de développement. -->
+  <section class="card">
+    <h2>Journal</h2>
+    <ol class="log" id="log"></ol>
+  </section>
+</main>
+
+<footer>
+  <!-- URL ABSOLUE, en dur, et surtout PAS relative. La capture et l'admin sont
+       servis sur deux hôtes distincts : un « /dashboard/ » relatif viserait le
+       site de capture, qui répond 404.
+
+       Écrite ici et non réécrite par app.js : ce fichier-ci n'est pas mis en
+       cache par Cloudflare (cf-cache-status: DYNAMIC), alors qu'un .js l'est
+       quatre heures (max-age=14400). Un lien réparé par le JS resterait donc
+       cassé jusqu'à l'expiration du cache, chez chaque visiteur.
+
+       Si le nom de domaine change, c'est ICI qu'il faut le changer. -->
+  <a href="https://noisy.virtuaworld.org/dashboard/">Dashboard →</a>
+</footer>
+
+<script src="app.js?v=16"></script>
+</body>
+</html>

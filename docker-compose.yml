@@ -1,0 +1,159 @@
+name: aboigramme                    # le dossier s'appelle « noisy », on ne veut pas que ça
+                                    # fuie dans les noms de réseau/volume, ni collision
+                                    # avec le projet « calendrier » en cours
+
+# Deux processus, une seule image, deux rôles. Voir APP_ROLE dans config.py.
+#
+#   capture (4466) — page de capture + WebSocket + écriture des MP3.
+#                    Le SEUL rôle qui charge YAMNet, et le seul qui a besoin
+#                    d'HTTPS, parce que le micro exige une origine sécurisée.
+#   admin   (4467) — dashboard + API REST. N'embarque ni LiteRT ni l'Interpreter
+#                    non thread-safe : un blocage d'inférence côté capture ne
+#                    peut plus emporter le dashboard.
+#
+# Les deux partagent la base et le volume des médias. Le découpage ne rouvre
+# PAS la question du CORS : chaque port sert l'API et les MP3 dont SA page a
+# besoin, donc aucune requête n'est cross-origin.
+#
+# ⚠️ Deux ports ne sont PAS un cloisonnement : il n'y a aucune authentification
+# (hypothèse LAN-only assumée). Les deux ports sont publiés sur le LAN. Ce qui
+# sépare réellement les deux, c'est ton Caddy, ou un pare-feu.
+
+x-api: &api-base
+  build: {context: ./backend}
+  image: aboigramme-api:latest
+  depends_on:
+    db: {condition: service_healthy}   # ← la garantie d'ordonnancement demandée
+  restart: unless-stopped
+  environment: &api-env
+    DATABASE_URL: postgresql://aboigramme:${POSTGRES_PASSWORD:-aboigramme_dev_pw}@db:5432/aboigramme
+    MEDIA_DIR: /data/media
+    MODEL_PATH: /app/models/yamnet.tflite
+    CLASS_MAP_PATH: /app/models/yamnet_class_map.csv
+    CLASSIFIER_BACKEND: yamnet_litert
+    DOG_THRESHOLD: ${DOG_THRESHOLD:-0.35}
+    APP_TZ: ${APP_TZ:-Europe/Paris}
+    TZ: ${APP_TZ:-Europe/Paris}
+    SAVE_REJECTED: ${SAVE_REJECTED:-false}
+    # Dump de diagnostic : l'audio exactement tel qu'il part au classifieur,
+    # dans ./export. Désactivé par défaut — c'est un outil d'enquête.
+    DEBUG_DUMP: ${DEBUG_DUMP:-false}
+    # Réglages poussés au client (déclencheur, garde-tempête, longueur
+    # d'épisode). Ils doivent passer par ICI pour exister : le `.env` ne sert
+    # qu'à la substitution du compose, il n'entre pas dans le conteneur. Régler
+    # l'un d'eux dans `.env` sans cette ligne ne ferait rien du tout.
+    CLIENT_TRIGGER_RATIO: ${CLIENT_TRIGGER_RATIO:-2.5}
+    CLIENT_MIN_RMS_FLOOR: ${CLIENT_MIN_RMS_FLOOR:-0.004}
+    CLIENT_COOLDOWN_MS: ${CLIENT_COOLDOWN_MS:-3000}
+    CLIENT_STORM_MAX: ${CLIENT_STORM_MAX:-40}
+    CLIENT_STREAM_SILENCE_MS: ${CLIENT_STREAM_SILENCE_MS:-30000}
+    # Écoute directe à la demande. LISTEN_CHUNK_MS est le réglage de LATENCE :
+    # la latence plancher vaut environ un morceau.
+    LISTEN_DURATION_MS: ${LISTEN_DURATION_MS:-60000}
+    LISTEN_CHUNK_MS: ${LISTEN_CHUNK_MS:-200}
+    ONDEMAND_KEEP: ${ONDEMAND_KEEP:-0}
+    CLIENT_LISTEN_ENABLED: ${CLIENT_LISTEN_ENABLED:-true}
+    # Analyse à la demande (bouton « Analyser »). `local` calcule la timeline
+    # dans le conteneur : mesuré à 8,9 ms par seconde d'audio, sans transfert
+    # ni machine supplémentaire. `remote` délègue à un service HTTP.
+    ANALYZE_BACKEND: ${ANALYZE_BACKEND:-local}
+    ANALYZE_REMOTE_URL: ${ANALYZE_REMOTE_URL:-}
+    ANALYZE_TIMELINE_MIN_SCORE: ${ANALYZE_TIMELINE_MIN_SCORE:-0.3}
+    # Adresse du processus capture SUR LE RÉSEAU COMPOSE, pour que l'admin
+    # puisse lui relayer ce qu'il ne sait pas faire seul : analyser un sample
+    # (il n'a pas le modèle) et servir le direct (le poste est connecté là-bas).
+    # Nom de service, pas d'IP : compose résout « capture » en DNS interne.
+    # Service QC (Quality Control acoustique)
+    QC_URL: ${QC_URL:-http://qc:8001}
+    UVICORN_WORKERS: "1"        # OBLIGATOIRE, pas un placeholder (Interpreter non thread-safe)
+  healthcheck:
+    # python et non curl : python:3.11-slim-bookworm ne fournit ni curl ni wget.
+    test: ["CMD", "python", "-c",
+           "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/api/health',timeout=4).status==200 else 1)"]
+    interval: 15s
+    timeout: 6s
+    retries: 5
+    start_period: 25s
+
+services:
+  db:
+    image: postgres:15-alpine       # DÉJÀ EN CACHE sur l'hôte → pull gratuit
+    # PAS DE `ports:` — le 5432 de l'hôte est déjà pris par calendrier-db-1.
+    # Publier le port ferait échouer `up` avec « address already in use »,
+    # une erreur qui ressemble à un bug Postgres.
+    environment:
+      POSTGRES_USER: aboigramme
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-aboigramme_dev_pw}
+      POSTGRES_DB: aboigramme
+      TZ: ${APP_TZ:-Europe/Paris}
+      PGTZ: ${APP_TZ:-Europe/Paris}
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB} -h 127.0.0.1"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    restart: unless-stopped
+
+  capture:
+    <<: *api-base
+    environment:
+      <<: *api-env
+      APP_ROLE: capture
+    # Le port publié est 4466 ; l'application écoute sur 8000 DANS le
+    # conteneur. Ce mapping garde le healthcheck interne valide et fait qu'un
+    # changement de port publié ne touche ni le code ni le Dockerfile.
+    ports: ["${HOST_PORT_CAPTURE:-4466}:8000"]
+    volumes:
+      - media:/data/media
+      # Dump de diagnostic : l'audio exactement tel qu'il part au classifieur,
+      # écrit à la racine du projet pour qu'on puisse l'écouter directement.
+      # Piloté par DEBUG_DUMP dans .env ; sans le drapeau, rien n'est écrit.
+      - ./export:/data/debug
+
+  admin:
+    <<: *api-base
+    environment:
+      <<: *api-env
+      APP_ROLE: admin
+    ports: ["${HOST_PORT_ADMIN:-4467}:8000"]
+    volumes:
+      - media:/data/media
+      # Les samples d'écoute, EN PLUS de capture. L'admin les liste et les sert
+      # lui-même : c'est ce qui permet d'avoir la page d'écoute sur le nom
+      # d'hôte public sans exposer `noisymic`, qui ne doit rester joignable que
+      # par le poste de terrain.
+      #
+      # Les deux processus partagent donc ce dossier — mais un seul ÉCRIT : le
+      # balayage des `.part` orphelins reste sur capture (`main.py`), sans quoi
+      # les deux se disputeraient les mêmes fichiers au démarrage.
+      - ./export:/data/debug
+      - ./samples/reference:/data/reference
+      # Les procédures, en lecture seule. Montées depuis l'hôte plutôt que
+      # copiées dans l'image : corriger une procédure ne demande alors aucun
+      # rebuild. Le montage est conditionnel côté application — si le dossier
+      # disparaît, le service démarre quand même sans la route /docs.
+      - ./docs:/app/docs:ro
+
+  qc:
+    build: {context: ./docker/qc}
+    image: aboigramme-qc:latest
+    restart: unless-stopped
+    ports: ["${HOST_PORT_QC:-8001}:8001"]
+    volumes:
+      - ./samples/reference:/data/reference
+      - ./export:/data/debug:ro
+      - media:/data/media:ro
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+# pgdata et media sont DEUX VOLUMES SÉPARÉS, volontairement :
+# `docker compose down -v` détruit pgdata MAIS PAS les MP3. Voir README.
+volumes:
+  pgdata:
+  media:

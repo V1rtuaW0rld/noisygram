@@ -1,0 +1,752 @@
+/* Aboigramme — dashboard.
+ *
+ * Les valeurs sombres sont déclarées DEUX FOIS, volontairement :
+ *   • sous la requête média, pour suivre le réglage du système ;
+ *   • sous [data-theme="dark"], pour que le bouton gagne.
+ * Le garde `:where(:not([data-theme="light"]))` permet à un choix « clair »
+ * de battre un système en sombre. Une seule des deux portées donnerait un
+ * thème qui ne se laisse pas contredire.
+ *
+ * Aucune couleur codée en dur dans le JS : les canvas relisent ces variables.
+ */
+
+:root {
+  color-scheme: light;
+
+  --plane:    #f9f9f7;
+  --surface:  #fcfcfb;
+  --ink:      #0b0b0b;
+  --ink-2:    #52514e;
+  --muted:    #898781;
+  --grid:     #e1e0d9;
+  --axis:     #c3c2b7;
+  --border:   rgba(11, 11, 11, 0.10);
+
+  --series:   #2a78d6;
+  --accent:   #2a78d6;
+  --danger:   #d03b3b;
+
+  /* Rampe séquentielle, UNE SEULE teinte, du plus proche du fond (1) au plus
+     soutenu (6). Jamais d'arc-en-ciel : il n'encode aucune magnitude. */
+  --seq-1: #cde2fb;
+  --seq-2: #9ec5f4;
+  --seq-3: #6da7ec;
+  --seq-4: #3987e5;
+  --seq-5: #256abf;
+  --seq-6: #104281;
+
+  --radius: 10px;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])) {
+    color-scheme: dark;
+    --plane:   #0d0d0d;
+    --surface: #1a1a19;
+    --ink:     #ffffff;
+    --ink-2:   #c3c2b7;
+    --muted:   #898781;
+    --grid:    #2c2c2a;
+    --axis:    #383835;
+    --border:  rgba(255, 255, 255, 0.10);
+    --series:  #3987e5;
+    --accent:  #3987e5;
+    --danger:  #e66767;
+    /* La rampe s'INVERSE : sur fond sombre, « proche de zéro » doit être
+       proche du fond, donc sombre. Ce n'est pas un Flip automatique du clair,
+       c'est un jeu d'étapes choisi pour cette surface. */
+    --seq-1: #184f95;
+    --seq-2: #256abf;
+    --seq-3: #3987e5;
+    --seq-4: #6da7ec;
+    --seq-5: #9ec5f4;
+    --seq-6: #cde2fb;
+  }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --plane:   #0d0d0d;
+  --surface: #1a1a19;
+  --ink:     #ffffff;
+  --ink-2:   #c3c2b7;
+  --muted:   #898781;
+  --grid:    #2c2c2a;
+  --axis:    #383835;
+  --border:  rgba(255, 255, 255, 0.10);
+  --series:  #3987e5;
+  --accent:  #3987e5;
+  --danger:  #e66767;
+  --seq-1: #184f95;
+  --seq-2: #256abf;
+  --seq-3: #3987e5;
+  --seq-4: #6da7ec;
+  --seq-5: #9ec5f4;
+  --seq-6: #cde2fb;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  padding: 0 20px 48px;
+  background: var(--plane);
+  color: var(--ink);
+  font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  width: 100%;
+}
+
+header {
+  width: 100%;
+  margin: 0;
+  padding: 20px 0 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.header-left {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+
+.header-center {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  flex: 0 0 auto;
+}
+
+.header-right {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 14px;
+  flex: 1;
+}
+
+.nav-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  text-decoration: none;
+  color: var(--ink);
+  padding: 6px 14px;
+  border-radius: 20px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  transition: all 0.15s ease;
+}
+.nav-item:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  text-decoration: none;
+}
+.nav-item.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #ffffff;
+  font-weight: 600;
+}
+
+@media (max-width: 768px) {
+  header {
+    flex-wrap: wrap;
+  }
+  .header-left { order: 1; flex: 1 1 auto; }
+  .header-right { order: 2; flex: 0 0 auto; }
+  .header-center { order: 3; width: 100%; margin-top: 8px; justify-content: center; }
+}
+
+h1 { margin: 0; font-size: 22px; letter-spacing: -0.01em; }
+h1 a { color: inherit; text-decoration: none; }
+h1 a:hover { color: var(--accent); }
+h2 { margin: 0 0 4px; font-size: 15px; font-weight: 600; }
+.sub { margin: 2px 0 0; color: var(--ink-2); font-size: 13px; }
+
+button {
+  font: inherit;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 7px 12px;
+  cursor: pointer;
+}
+button:hover { border-color: var(--axis); }
+button.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+button#theme, .btn-theme {
+  width: 36px;
+  height: 36px;
+  min-width: 36px;
+  min-height: 36px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  cursor: pointer;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--ink);
+  transition: background 0.15s ease, border-color 0.15s ease, transform 0.1s ease;
+  flex-shrink: 0;
+}
+button#theme:hover, .btn-theme:hover {
+  border-color: var(--accent);
+  background: var(--plane);
+}
+button#theme:active, .btn-theme:active {
+  transform: scale(0.94);
+}
+.icon-theme {
+  display: block;
+  pointer-events: none;
+}
+
+main { width: 100%; margin: 0; display: grid; gap: 16px; }
+
+@media (min-width: 1100px) {
+  main {
+    grid-template-columns: 1fr 1fr;
+  }
+  .filters, .status, .hero, .card-wide {
+    grid-column: 1 / -1;
+  }
+}
+
+/* --------------------------------------------------------------- filtres */
+
+.filters {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+  padding: 10px 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.custom { display: flex; align-items: center; gap: 6px; margin-left: auto;
+          color: var(--ink-2); font-size: 13px; }
+.custom input {
+  font: inherit; font-size: 13px; color: var(--ink);
+  background: var(--plane); border: 1px solid var(--border);
+  border-radius: 6px; padding: 5px 7px;
+}
+
+.status { margin: 0; font-size: 13px; color: var(--ink-2); }
+.status--error { color: var(--danger); }
+
+/* ----------------------------------------------------------------- cartes */
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+  transition: opacity 140ms ease;
+}
+.card-sub { margin: 0 0 12px; font-size: 13px; color: var(--ink-2); }
+
+/* Titre à gauche, export CSV à droite, alignés sur la ligne de base : le
+   bouton est un accessoire du titre, il ne doit pas créer sa propre ligne. */
+.card-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 0 4px;
+}
+.card-head h2 { margin: 0; }
+button.export { padding: 3px 9px; font-size: 12px; color: var(--ink-2); }
+button.export:hover { color: var(--ink); }
+
+/* -------------------------------------------------------- actualisation */
+
+/* Le voyant d'actualisation. Comme les pastilles de la page de capture : un
+   point coloré ET un texte. La couleur seule serait illisible pour un
+   daltonien et ambiguë sur une capture d'écran. */
+.direct {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+.direct-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--muted);
+  flex: none;
+}
+.direct[data-etat="direct"] .direct-dot,
+.direct[data-etat="nouveau"] .direct-dot { background: var(--accent); }
+.direct[data-etat="erreur"] { color: var(--danger); }
+.direct[data-etat="erreur"] .direct-dot { background: var(--danger); }
+.direct[data-etat="pause"] { color: var(--muted); }
+
+/* Deux pulsations à l'arrivée d'un événement : assez pour attirer l'œil,
+   assez court pour ne pas clignoter en permanence un soir d'aboiements. */
+@media (prefers-reduced-motion: no-preference) {
+  .direct[data-etat="nouveau"] .direct-dot { animation: direct-pouls 700ms ease-out 2; }
+}
+@keyframes direct-pouls {
+  from { box-shadow: 0 0 0 0 var(--accent); }
+  to   { box-shadow: 0 0 0 7px transparent; }
+}
+
+/* Pas de squelette au rechargement : on garde le rendu précédent, simplement
+   en retrait. Un squelette ferait sauter la mise en page à chaque filtre. */
+body[data-loading="oui"] .card { opacity: 0.55; }
+
+/* Le chiffre héros. Chiffres PROPORTIONNELS : tabular-nums à cette taille fait
+   paraître « 121 » distendu. tabular-nums est réservé aux colonnes qui doivent
+   s'aligner verticalement (tableaux, graduations). */
+.hero-label { margin: 0; font-size: 12px; text-transform: uppercase;
+              letter-spacing: 0.06em; color: var(--muted); }
+.hero-number { margin: 2px 0 0; font-size: 56px; font-weight: 600; line-height: 1.05; }
+.hero-sub { margin: 4px 0 16px; font-size: 13px; color: var(--ink-2); }
+
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; }
+.tile {
+  display: flex; flex-direction: column; gap: 2px;
+  padding: 10px 12px; background: var(--plane); border-radius: 8px;
+}
+.tile-label { font-size: 11px; text-transform: uppercase;
+              letter-spacing: 0.05em; color: var(--muted); }
+.tile-value { font-size: 20px; font-weight: 600; }
+
+/* -------------------------------------------------------------- graphiques */
+
+/* La hauteur inclut la bande des étiquettes de l'axe : trop juste, la carte
+   se doterait d'une barre de défilement interne pour deux malheureux pixels. */
+.plot { position: relative; height: 280px; }
+.plot canvas { width: 100% !important; height: 100% !important; }
+
+.empty {
+  margin: 0; padding: 32px 12px; text-align: center;
+  color: var(--muted); font-size: 14px;
+  border: 1px dashed var(--axis); border-radius: 8px;
+}
+
+/* --------------------------------------------------------------- tableaux */
+
+details { margin-top: 12px; }
+summary { cursor: pointer; font-size: 13px; color: var(--ink-2); }
+summary:hover { color: var(--ink); }
+.table-scroll { overflow-x: auto; margin-top: 8px; }
+
+table { border-collapse: collapse; width: 100%; font-size: 13px; }
+th, td { padding: 4px 8px; text-align: right; border-bottom: 1px solid var(--grid); }
+thead th { color: var(--muted); font-weight: 600; font-size: 11px;
+           text-transform: uppercase; letter-spacing: 0.04em; }
+tbody th { text-align: left; font-weight: 500; }
+/* tabular-nums ICI, et pas sur le chiffre héros : ces colonnes doivent
+   s'aligner verticalement. */
+tbody td, thead th { font-variant-numeric: tabular-nums; }
+tbody tr:last-child th, tbody tr:last-child td { border-bottom: none; }
+
+button.lien {
+  border: none; background: none; padding: 0;
+  color: var(--accent); text-decoration: underline; font-size: 13px;
+}
+
+.th-play, .td-play {
+  width: 36px;
+  min-width: 36px;
+  max-width: 44px;
+  padding-left: 8px;
+  padding-right: 2px;
+  text-align: center;
+}
+
+.btn-play-row {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  min-width: 24px;
+  min-height: 24px;
+  padding: 0;
+  border-radius: 50%;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: #22c55e;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+}
+
+.btn-play-row:hover {
+  background: #22c55e;
+  color: #fff;
+  border-color: #22c55e;
+  transform: scale(1.12);
+}
+
+.btn-play-row.en-lecture {
+  background: #22c55e;
+  color: #fff;
+  border-color: #22c55e;
+  box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.3);
+}
+
+.btn-play-row svg {
+  display: block;
+  pointer-events: none;
+}
+
+#table-timeline tr {
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+
+#table-timeline tr:hover {
+  background: var(--plane);
+}
+
+#table-timeline tr.ligne-en-lecture {
+  background: rgba(34, 197, 94, 0.18) !important;
+  box-shadow: inset 4px 0 0 #22c55e;
+}
+
+/* ---------------------------------------------------------------- heatmap */
+
+.heatmap { font-size: 12px; }
+.heatmap th, .heatmap td {
+  text-align: center; padding: 3px 5px;
+  border-bottom: 1px solid transparent;
+  font-variant-numeric: tabular-nums;
+}
+.heatmap thead th { font-size: 10px; }
+.heatmap tbody th { text-align: left; white-space: nowrap; padding-right: 10px; }
+.heatmap td { border-radius: 3px; min-width: 22px; }
+.heatmap .total { font-weight: 600; padding-left: 10px; color: var(--ink-2); }
+
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+}
+
+audio { width: 100%; }
+
+footer { width: 100%; margin: 20px auto 0; text-align: center; }
+footer p { margin: 0; font-size: 12px; color: var(--muted); }
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; animation: none !important; }
+}
+
+/* ------------------------------------------------------------- Quality Center & Modale */
+
+dialog#modal-qc {
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--ink);
+  width: min(1300px, 95vw);
+  max-height: 88vh;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.35);
+}
+
+dialog#modal-qc::backdrop {
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(2px);
+}
+
+.modale-boite {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 18px 20px 16px;
+  max-height: 88vh;
+  overflow-y: auto;
+}
+
+.modale-tete {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0;
+}
+
+.modale-tete h2 {
+  margin: 0;
+  margin-right: auto;
+  font-size: 17px;
+}
+
+.modale-croix {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  font-size: 20px;
+  line-height: 1;
+  color: var(--ink-2);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.modale-croix:hover {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.modale-pied {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.qc-grid-container {
+  display: grid;
+  grid-template-columns: 360px 1fr;
+  gap: 20px;
+  min-height: 380px;
+}
+
+@media (max-width: 900px) {
+  .qc-grid-container {
+    grid-template-columns: 1fr;
+  }
+}
+
+.qc-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: var(--plane);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px;
+}
+
+.qc-panel-title {
+  font-size: 15px;
+  font-weight: 600;
+  margin: 0;
+  color: var(--ink);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.qc-thresholds-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.qc-thresholds-table th,
+.qc-thresholds-table td {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.qc-input-thresh {
+  width: 60px;
+  padding: 4px 6px;
+  font: inherit;
+  font-size: 13px;
+  background: var(--surface);
+  color: var(--ink);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  text-align: right;
+}
+
+.qc-badge-ref {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  background: color-mix(in srgb, var(--series) 18%, transparent);
+  color: var(--series);
+}
+
+.qc-badge-status {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  background: color-mix(in srgb, #22c55e 18%, transparent);
+  color: #22c55e;
+}
+
+.btn-primary {
+  background: var(--series);
+  color: #fff;
+  border: 1px solid var(--series);
+  border-radius: 6px;
+  font-size: 13px;
+  padding: 6px 12px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-primary:hover {
+  filter: brightness(1.1);
+}
+
+.btn-danger {
+  background: color-mix(in srgb, var(--danger) 14%, transparent);
+  color: var(--danger);
+  border: 1px solid color-mix(in srgb, var(--danger) 30%, transparent);
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-danger:hover {
+  background: var(--danger);
+  color: #fff;
+}
+
+.btn-qc {
+  transition: opacity 0.15s ease;
+}
+
+.btn-qc:hover {
+  opacity: 0.8;
+}
+
+.qc-candidates-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.qc-candidates-table th,
+.qc-candidates-table td {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+}
+
+.qc-candidates-table tr:hover {
+  background: var(--surface);
+}
+
+.qc-candidates-table tr.row-ref {
+  background: color-mix(in srgb, var(--series) 8%, transparent);
+}
+
+/* QC Tabs */
+.qc-tabs-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 6px;
+  margin-bottom: 8px;
+}
+
+.qc-tab-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 5px 10px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink-2);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.qc-tab-btn:hover {
+  color: var(--ink);
+  background: var(--surface);
+}
+
+.qc-tab-btn.active {
+  color: var(--ink);
+  background: var(--surface);
+  border-color: var(--border);
+  font-weight: 600;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+.qc-tab-badge {
+  display: inline-block;
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 10px;
+  background: var(--plane);
+  border: 1px solid var(--border);
+}
+
+.qc-badge-gold {
+  background: color-mix(in srgb, #eab308 18%, transparent);
+  color: #ca8a04;
+  border-color: color-mix(in srgb, #eab308 30%, transparent);
+}
+
+.btn-analyser-qc {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 7px;
+  font-size: 11px;
+  font-weight: 500;
+  border-radius: 5px;
+  background: var(--surface);
+  color: var(--ink);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-analyser-qc:hover {
+  background: color-mix(in srgb, var(--accent, var(--series)) 15%, transparent);
+  border-color: var(--accent, var(--series));
+  color: var(--accent, var(--series));
+}
+
+.btn-delete-snippet {
+  background: transparent;
+  border: none;
+  color: var(--danger);
+  cursor: pointer;
+  padding: 3px 6px;
+  border-radius: 4px;
+  font-size: 13px;
+  transition: background 0.15s ease;
+}
+
+.btn-delete-snippet:hover {
+  background: color-mix(in srgb, var(--danger) 15%, transparent);
+}
+
+.badge-snippet-count {
+  display: inline-block;
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 8px;
+  background: color-mix(in srgb, #ca8a04 15%, transparent);
+  color: #ca8a04;
+  font-weight: 600;
+}
+

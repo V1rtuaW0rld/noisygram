@@ -1,0 +1,16 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+
+# Les modèles sont téléchargés AU BUILD et vérifiés par SHA-256 : un fichier
+# local périmé ou tronqué ne doit jamais prendre le pas sur la source épinglée.
+models/*
+!models/.gitkeep
+
+# Idem pour Chart.js : il est vendu au build depuis la version épinglée.
+static/vendor/*
+!static/vendor/.gitkeep
