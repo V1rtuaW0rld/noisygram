@@ -421,6 +421,498 @@ const pagination = {
   },
 };
 
+// ------------------------------------------------------ filtres de colonnes
+//
+// Un moteur unique pour les trois tableaux de travail. Chaque colonne
+// filtrable est décrite UNE fois dans COLONNES ; le filtre et le tri s'en
+// déduisent. Sans ça il faudrait réécrire huit listes à cocher trois fois.
+//
+// ⚠️ Les filtres ne modifient JAMAIS `pagination.X.items` : ce tableau est
+// réassigné toutes les 4 s par le rafraîchissement automatique. Ils
+// s'appliquent à la volée, dans les fonctions de rendu.
+//
+// `valeur` renvoie null/undefined quand la donnée manque : la ligne tombe
+// alors dans « (vide) », qui est un choix comme un autre — beaucoup
+// d'événements n'ont jamais été évalués par le QC.
+
+const COLONNES = {
+  samples: {
+    name:        { libelle: 'Fichier',  type: 'texte',  valeur: (s) => s.name },
+    duration_ms: { libelle: 'Durée',    type: 'nombre', valeur: (s) => s.duration_ms },
+    noisy_score: { libelle: 'Score',    type: 'nombre', valeur: (s) => (s.analysis ? s.analysis.noisy_score : null) },
+    qc_score:    { libelle: 'Score QC', type: 'nombre', valeur: (s) => (s.analysis ? s.analysis.qc_score : null) },
+    qc_valid:    { libelle: 'QC',       type: 'enum',   valeur: (s) => (s.analysis ? s.analysis.qc_valid : null) },
+    densite:     { libelle: 'Densité',  type: 'nombre', valeur: (s) => (s.analysis ? s.analysis.windows_retenues : null) },
+    niveau:      { libelle: 'Niveau',   type: 'nombre', valeur: (s) => (s.analysis ? s.analysis.peak_dbfs : null) },
+    'analysé':   { libelle: 'Analysé',  type: 'enum',
+                   valeur: (s) => (!s.analysis ? 'non' : (s.stale ? 'périmé' : 'oui')) },
+  },
+  captures: {
+    id:          { libelle: 'N°',       type: 'nombre', valeur: (e) => e.id },
+    detected_at: { libelle: 'Quand',    type: 'date',   valeur: (e) => new Date(e.detected_at) },
+    duration_ms: { libelle: 'Durée',    type: 'nombre', valeur: (e) => e.duration_ms },
+    noisy_score: { libelle: 'Score',    type: 'nombre', valeur: (e) => e.noisy_score },
+    qc_score:    { libelle: 'Score QC', type: 'nombre', valeur: (e) => e.qc_score },
+    qc_valid:    { libelle: 'QC',       type: 'enum',   valeur: (e) => e.qc_valid },
+    noisy_count: { libelle: 'Rafales',  type: 'nombre', valeur: (e) => e.noisy_count },
+  },
+  candidats: {
+    id:             { libelle: 'N°',       type: 'nombre', valeur: (c) => c.id },
+    detected_at:    { libelle: 'Quand',    type: 'date',   valeur: (c) => new Date(c.detected_at) },
+    duration_ms:    { libelle: 'Durée',    type: 'nombre', valeur: (c) => c.duration_ms },
+    qc_score:       { libelle: 'Score QC', type: 'nombre', valeur: (c) => c.qc_score },
+    snippets_count: { libelle: 'Extraits', type: 'nombre', valeur: (c) => c.snippets_count },
+  },
+};
+
+const TABLE_ID = { samples: 'samples', captures: 'captures', candidats: 'qc-table-candidats' };
+
+// L'état des filtres vit ici et survit au rafraîchissement de 4 s,
+// contrairement aux données qu'il filtre.
+const filtres = {
+  samples:   { actif: {}, tri: null, masquerRefus: false },
+  captures:  { actif: {}, tri: null, masquerRefus: false },
+  candidats: { actif: {}, tri: null, masquerRefus: false },
+};
+
+// Liste brute des candidats QC : afficheCandidatsQC() la reçoit en argument et
+// n'en gardait rien, or le moteur doit pouvoir la relire pour filtrer.
+let candidatsQC = [];
+// Colonne dont le menu est ouvert, ou null.
+let popCible = null;
+
+function cleValeur(v) {
+  if (v === null || v === undefined || (typeof v === 'number' && Number.isNaN(v))) return '';
+  if (v === true) return 'true';
+  if (v === false) return 'false';
+  return String(v);
+}
+
+function libelleValeur(v) {
+  const c = cleValeur(v);
+  if (c === '') return '(vide)';
+  if (c === 'true') return 'Vrai';
+  if (c === 'false') return 'Faux';
+  return c;
+}
+
+function filtreActif(table, col) {
+  const f = filtres[table].actif[col];
+  if (!f) return false;
+  if (f.valeurs && f.valeurs.size) return true;
+  if (f.min != null || f.max != null) return true;
+  if (f.du != null || f.au != null) return true;
+  return false;
+}
+
+function nbFiltresActifs(table) {
+  return Object.keys(filtres[table].actif).filter((c) => filtreActif(table, c)).length
+    + (filtres[table].masquerRefus ? 1 : 0);
+}
+
+function donneesTable(table) {
+  if (table === 'samples') return pagination.samples.items;
+  if (table === 'captures') return pagination.captures.items;
+  if (table === 'candidats') return candidatsQC;
+  return [];
+}
+
+function filtreLignes(table, items) {
+  const etat = filtres[table];
+  const cols = COLONNES[table];
+  let out = items;
+
+  if (etat.masquerRefus) {
+    out = out.filter((e) => !(e.backend && String(e.backend).indexOf('refused/') === 0));
+  }
+
+  for (const col of Object.keys(cols)) {
+    const f = etat.actif[col];
+    if (!f) continue;
+    const desc = cols[col];
+
+    if (f.valeurs && f.valeurs.size) {
+      out = out.filter((it) => f.valeurs.has(cleValeur(desc.valeur(it))));
+    }
+    if (desc.type === 'nombre') {
+      if (f.min != null) out = out.filter((it) => { const v = desc.valeur(it); return v != null && v >= f.min; });
+      if (f.max != null) out = out.filter((it) => { const v = desc.valeur(it); return v != null && v <= f.max; });
+    }
+    if (desc.type === 'date' && (f.du != null || f.au != null)) {
+      out = out.filter((it) => {
+        const v = desc.valeur(it);
+        if (!(v instanceof Date) || Number.isNaN(v.getTime())) return false;
+        if (f.du != null && v < f.du) return false;
+        if (f.au != null && v > f.au) return false;
+        return true;
+      });
+    }
+  }
+  return out;
+}
+
+function trieLignes(table, items) {
+  const t = filtres[table].tri;
+  if (!t || !t.col) return items;
+  const desc = COLONNES[table][t.col];
+  if (!desc) return items;
+  const signe = t.sens === 'desc' ? -1 : 1;
+  // Copie : on ne trie jamais le tableau source, il est réassigné par le
+  // rafraîchissement automatique.
+  return items.slice().sort((a, b) => {
+    const va = desc.valeur(a);
+    const vb = desc.valeur(b);
+    const vite = (v) => v == null || (typeof v === 'number' && Number.isNaN(v));
+    // Les valeurs absentes finissent en queue DANS LES DEUX SENS : les
+    // remonter en tête au tri décroissant ferait croire à une donnée.
+    if (vite(va)) return vite(vb) ? 0 : 1;
+    if (vite(vb)) return -1;
+    if (typeof va === 'number' && typeof vb === 'number') return signe * (va - vb);
+    if (va instanceof Date && vb instanceof Date) return signe * (va - vb);
+    return signe * String(va).localeCompare(String(vb), 'fr', { numeric: true });
+  });
+}
+
+function lignesVisibles(table, items) {
+  return trieLignes(table, filtreLignes(table, items));
+}
+
+function majBarreFiltre(table, affichees, total) {
+  const barre = document.querySelector(`.barre-filtre[data-table="${table}"]`);
+  if (!barre) return;
+  const compte = barre.querySelector('[data-role="compte"]');
+  const reset = barre.querySelector('[data-role="reset"]');
+  const n = nbFiltresActifs(table);
+  const restreint = affichees !== total;
+  if (compte) {
+    // Le TEXTE dit l'état : dans ce projet, jamais la couleur seule.
+    compte.textContent = restreint
+      ? `${affichees} / ${total} lignes affichées — ${n} filtre${n > 1 ? 's' : ''} actif${n > 1 ? 's' : ''}`
+      : `${total} ligne${total > 1 ? 's' : ''}`;
+    compte.classList.toggle('filtre-compte--actif', restreint);
+  }
+  if (reset) reset.hidden = n === 0;
+}
+
+function majEntetesTri() {
+  for (const table of Object.keys(COLONNES)) {
+    const el = $(TABLE_ID[table]);
+    if (!el) continue;
+    el.querySelectorAll('th[data-col]').forEach((th) => {
+      const col = th.dataset.col;
+      if (!COLONNES[table][col]) return;
+      const actif = filtreActif(table, col);
+      th.classList.toggle('th-filtre-actif', actif);
+      const btn = th.querySelector('.btn-filtre');
+      if (btn) {
+        btn.classList.toggle('btn-filtre--actif', actif);
+        btn.title = actif
+          ? `Filtre actif sur « ${COLONNES[table][col].libelle} » — cliquer pour le modifier`
+          : `Filtrer « ${COLONNES[table][col].libelle} »`;
+      }
+      const t = filtres[table].tri;
+      th.classList.remove('th-tri-asc', 'th-tri-desc');
+      if (t && t.col === col) th.classList.add(t.sens === 'desc' ? 'th-tri-desc' : 'th-tri-asc');
+    });
+  }
+}
+
+function rafraichisTable(table) {
+  if (pagination[table]) pagination[table].page = 1;   // le filtre change le nombre de pages
+  if (table === 'samples') renduPageSamples();
+  else if (table === 'captures') renduPageCaptures();
+  else if (table === 'candidats') afficheCandidatsQC(candidatsQC);
+  majEntetesTri();
+}
+
+function basculeTri(table, col) {
+  const t = filtres[table].tri;
+  // Cycle croissant → décroissant → aucun. Revenir à « aucun » compte :
+  // l'ordre d'origine (du plus récent au plus ancien) a un sens.
+  if (!t || t.col !== col) filtres[table].tri = { col, sens: 'asc' };
+  else if (t.sens === 'asc') filtres[table].tri = { col, sens: 'desc' };
+  else filtres[table].tri = null;
+  rafraichisTable(table);
+}
+
+function versInputDate(d) {
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+function positionnePopover(ancre) {
+  const pop = $('filtre-popover');
+  if (!pop || !ancre) return;
+  const r = ancre.getBoundingClientRect();
+  const largeur = pop.offsetWidth || 260;
+  const hauteur = pop.offsetHeight || 260;
+  const x = Math.max(8, Math.min(r.left, window.innerWidth - largeur - 8));
+  let y = r.bottom + 4;
+  // S'il ne reste pas la place en dessous, on ouvre vers le haut : c'est ce
+  // qui compte pour les tableaux en bas de page.
+  if (y + hauteur > window.innerHeight - 8) y = Math.max(8, r.top - hauteur - 4);
+  pop.style.left = `${x}px`;
+  pop.style.top = `${y}px`;
+}
+
+function dessineFiltre() {
+  if (!popCible) return;
+  const { table, col } = popCible;
+  const desc = COLONNES[table][col];
+  if (!desc) return;
+  const corps = $('filtre-corps');
+  corps.textContent = '';
+  const rows = donneesTable(table);
+  const f = filtres[table].actif[col] || {};
+
+  // --- Trier ---
+  const blocTri = document.createElement('div');
+  blocTri.className = 'filtre-section';
+  const titreTri = document.createElement('p');
+  titreTri.className = 'filtre-section-titre';
+  titreTri.textContent = 'Trier';
+  blocTri.appendChild(titreTri);
+  const courant = filtres[table].tri;
+  for (const [sens, libelle] of [['asc', '↑ Croissant'], ['desc', '↓ Décroissant']]) {
+    const actif = !!(courant && courant.col === col && courant.sens === sens);
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'filtre-choix' + (actif ? ' filtre-choix--actif' : '');
+    b.setAttribute('aria-pressed', actif ? 'true' : 'false');
+    b.textContent = libelle;
+    b.addEventListener('click', () => {
+      filtres[table].tri = actif ? null : { col, sens };
+      rafraichisTable(table);
+      dessineFiltre();
+    });
+    blocTri.appendChild(b);
+  }
+  corps.appendChild(blocTri);
+
+  // --- Filtrer ---
+  const blocF = document.createElement('div');
+  blocF.className = 'filtre-section';
+  const titreF = document.createElement('p');
+  titreF.className = 'filtre-section-titre';
+  titreF.textContent = 'Filtrer';
+  blocF.appendChild(titreF);
+
+  if (desc.type === 'nombre' || desc.type === 'date') {
+    const wrap = document.createElement('div');
+    wrap.className = 'filtre-plage';
+    const champs = desc.type === 'nombre'
+      ? [['min', 'de', 'number'], ['max', 'à', 'number']]
+      : [['du', 'du', 'datetime-local'], ['au', 'au', 'datetime-local']];
+    for (const [role, libelle, type] of champs) {
+      const lab = document.createElement('label');
+      lab.className = 'filtre-plage-champ';
+      const span = document.createElement('span');
+      span.textContent = libelle;
+      const inp = document.createElement('input');
+      inp.type = type;
+      if (type === 'number') inp.step = 'any';
+      inp.dataset.rolePlage = role;
+      const val = f[role];
+      if (val != null) inp.value = type === 'number' ? String(val) : versInputDate(val);
+      lab.appendChild(span);
+      lab.appendChild(inp);
+      wrap.appendChild(lab);
+    }
+    blocF.appendChild(wrap);
+  } else {
+    // enum ou texte : recherche + cases à cocher, comme Excel.
+    const valeurs = new Map();
+    for (const it of rows) {
+      const v = desc.valeur(it);
+      const c = cleValeur(v);
+      if (!valeurs.has(c)) valeurs.set(c, libelleValeur(v));
+    }
+    const cles = [...valeurs.keys()].sort((a, b) =>
+      valeurs.get(a).localeCompare(valeurs.get(b), 'fr', { numeric: true }));
+
+    const rech = document.createElement('input');
+    rech.type = 'search';
+    rech.className = 'filtre-recherche';
+    rech.placeholder = 'Rechercher…';
+    rech.setAttribute('aria-label', 'Rechercher une valeur');
+    blocF.appendChild(rech);
+
+    const actions = document.createElement('div');
+    actions.className = 'filtre-actions';
+    for (const [role, libelle] of [['tout', 'Tout cocher'], ['rien', 'Tout décocher']]) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'filtre-lien';
+      b.dataset.roleCases = role;
+      b.textContent = libelle;
+      actions.appendChild(b);
+    }
+    blocF.appendChild(actions);
+
+    const liste = document.createElement('div');
+    liste.className = 'filtre-liste';
+    const selection = f.valeurs || null;
+    for (const c of cles) {
+      const lab = document.createElement('label');
+      lab.className = 'filtre-item';
+      lab.dataset.recherche = valeurs.get(c).toLowerCase();
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.value = c;
+      // Aucun filtre posé = tout est coché : c'est l'état de repos, et il
+      // doit se voir comme tel.
+      cb.checked = selection ? selection.has(c) : true;
+      const span = document.createElement('span');
+      span.textContent = valeurs.get(c);
+      lab.appendChild(cb);
+      lab.appendChild(span);
+      liste.appendChild(lab);
+    }
+    blocF.appendChild(liste);
+
+    rech.addEventListener('input', () => {
+      const q = rech.value.trim().toLowerCase();
+      liste.querySelectorAll('.filtre-item').forEach((el) => {
+        el.hidden = !!q && el.dataset.recherche.indexOf(q) === -1;
+      });
+    });
+    actions.querySelector('[data-role-cases="tout"]').addEventListener('click', () => {
+      liste.querySelectorAll('input[type=checkbox]').forEach((cb) => { cb.checked = true; });
+    });
+    actions.querySelector('[data-role-cases="rien"]').addEventListener('click', () => {
+      liste.querySelectorAll('input[type=checkbox]').forEach((cb) => { cb.checked = false; });
+    });
+  }
+  corps.appendChild(blocF);
+}
+
+function ouvreFiltre(table, col, ancre) {
+  const pop = $('filtre-popover');
+  if (!pop) return;
+  popCible = { table, col };
+  $('filtre-titre').textContent = `Colonne « ${COLONNES[table][col].libelle} »`;
+  dessineFiltre();
+  if (typeof pop.showPopover === 'function') {
+    if (!pop.matches(':popover-open')) pop.showPopover();
+  } else {
+    pop.hidden = false;   // repli si l'API popover manque : au moins ça s'affiche
+    pop.classList.add('filtre-popover--repli');
+  }
+  positionnePopover(ancre);
+}
+
+function appliqueFiltre() {
+  if (!popCible) return;
+  const { table, col } = popCible;
+  const desc = COLONNES[table][col];
+  const corps = $('filtre-corps');
+  const etat = {};
+
+  if (desc.type === 'nombre') {
+    corps.querySelectorAll('input[data-role-plage]').forEach((inp) => {
+      if (inp.value === '') return;
+      const v = Number(inp.value);
+      if (!Number.isNaN(v)) etat[inp.dataset.rolePlage] = v;
+    });
+  } else if (desc.type === 'date') {
+    corps.querySelectorAll('input[data-role-plage]').forEach((inp) => {
+      if (inp.value === '') return;
+      const d = new Date(inp.value);
+      if (!Number.isNaN(d.getTime())) etat[inp.dataset.rolePlage] = d;
+    });
+  } else {
+    const toutes = [...corps.querySelectorAll('.filtre-liste input[type=checkbox]')];
+    if (toutes.length) {
+      const cochees = new Set(toutes.filter((cb) => cb.checked).map((cb) => cb.value));
+      // Tout coché = aucun filtre : sinon un `Set` plein ferait exactement la
+      // même chose mais s'afficherait comme « filtre actif ».
+      if (cochees.size < toutes.length) etat.valeurs = cochees;
+    }
+  }
+
+  if (Object.keys(etat).length) filtres[table].actif[col] = etat;
+  else delete filtres[table].actif[col];
+
+  rafraichisTable(table);
+  fermeFiltre();
+}
+
+function fermeFiltre() {
+  const pop = $('filtre-popover');
+  if (pop && typeof pop.hidePopover === 'function') {
+    if (pop.matches(':popover-open')) pop.hidePopover();
+  } else if (pop) {
+    pop.hidden = true;
+  }
+  popCible = null;
+}
+
+function initFiltres() {
+  const pop = $('filtre-popover');
+  if (!pop) return;
+
+  for (const table of Object.keys(COLONNES)) {
+    const el = $(TABLE_ID[table]);
+    if (!el) continue;
+    el.querySelectorAll('th[data-col]').forEach((th) => {
+      const col = th.dataset.col;
+      // data-col orphelin : on n'invente pas de descripteur, on ignore.
+      if (!COLONNES[table][col]) return;
+      th.classList.add('th-filtrable');
+
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'btn-filtre';
+      btn.textContent = '▾';
+      btn.setAttribute('aria-label', `Filtrer la colonne ${COLONNES[table][col].libelle}`);
+      btn.title = `Filtrer « ${COLONNES[table][col].libelle} »`;
+      btn.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        if (popCible && popCible.table === table && popCible.col === col) fermeFiltre();
+        else ouvreFiltre(table, col, th);
+      });
+      th.appendChild(btn);
+
+      // Cliquer le TITRE trie, comme dans Excel. Le bouton reste pour le
+      // filtre : les deux entrées ne font pas la même chose.
+      th.classList.add('th-triable');
+      th.addEventListener('click', (ev) => {
+        if (ev.target.closest('.btn-filtre')) return;
+        basculeTri(table, col);
+      });
+    });
+  }
+
+  pop.querySelector('[data-role="annuler"]').addEventListener('click', fermeFiltre);
+  pop.querySelector('[data-role="appliquer"]').addEventListener('click', appliqueFiltre);
+  // Le popover se ferme au clic extérieur : on oublie alors la colonne
+  // courante, sinon un second clic dessus la croirait encore ouverte.
+  pop.addEventListener('toggle', (ev) => { if (ev.newState === 'closed') popCible = null; });
+
+  for (const table of Object.keys(COLONNES)) {
+    const barre = document.querySelector(`.barre-filtre[data-table="${table}"]`);
+    if (!barre) continue;
+    const reset = barre.querySelector('[data-role="reset"]');
+    if (reset) {
+      reset.addEventListener('click', () => {
+        filtres[table] = { actif: {}, tri: null, masquerRefus: false };
+        const c = barre.querySelector('[data-role="masquer-refus"]');
+        if (c) c.checked = false;
+        rafraichisTable(table);
+      });
+    }
+    const masquer = barre.querySelector('[data-role="masquer-refus"]');
+    if (masquer) {
+      masquer.addEventListener('change', () => {
+        filtres[table].masquerRefus = masquer.checked;
+        rafraichisTable(table);
+      });
+    }
+  }
+
+  majEntetesTri();
+}
+
 function activeOngletTableau(onglet) {
   const estDirects = onglet === 'directs';
   const secDirects = $('section-directs');
@@ -453,8 +945,12 @@ function basculeOngletTableau() {
 
 function renduPageSamples() {
   const pState = pagination.samples;
-  const items = pState.items;
+  // Filtre et tri s'appliquent ICI, et surtout PAS sur pState.items : le
+  // rafraîchissement de 4 s réassigne ce tableau, ce qui effacerait un filtre
+  // écrit dedans.
+  const items = lignesVisibles('samples', pState.items);
   const total = items.length;
+  majBarreFiltre('samples', total, pState.items.length);
   const totalPages = Math.max(1, Math.ceil(total / pState.taille));
   if (pState.page > totalPages) pState.page = totalPages;
   if (pState.page < 1) pState.page = 1;
@@ -613,8 +1109,9 @@ async function chargeSamples(silencieux = false) {
 
 function renduPageCaptures() {
   const pState = pagination.captures;
-  const items = pState.items;
+  const items = lignesVisibles('captures', pState.items);
   const total = items.length;
+  majBarreFiltre('captures', total, pState.items.length);
   const totalPages = Math.max(1, Math.ceil(total / pState.taille));
 
   if (pState.page > totalPages) pState.page = totalPages;
@@ -791,7 +1288,12 @@ async function chargeCaptures(silencieux = false) {
   const btnRaf = $('captures-rafraichir');
   if (!silencieux && btnRaf) btnRaf.classList.add('en-cours');
   try {
-    const data = await api('/api/events?limit=500&from=2020-01-01T00:00:00');
+    // ⚠️ PLAFOND, et il est atteint : au-delà, le tableau se tronque EN
+    // SILENCE — les événements les plus anciens disparaissent sans que rien
+    // ne le dise. 1000 est le maximum que l'API accepte (events.py, `le=1000`).
+    // C'est un dépannage : le vrai correctif est de filtrer côté serveur, avec
+    // la pagination qui va avec. À ouvrir quand le corpus dépassera ~900.
+    const data = await api('/api/events?limit=1000&from=2020-01-01T00:00:00');
     pagination.captures.items = data.items || [];
 
     const badge = $('badge-captures');
@@ -868,6 +1370,22 @@ function appliqueTheme(theme) {
 }
 
 function init() {
+  // Les filtres s'installent avant tout rendu : ils ajoutent leurs boutons
+  // dans les en-têtes, que les fonctions de rendu ne touchent jamais (elles
+  // ne vident que les <tbody>).
+  initFiltres();
+  // Le popover est positionné en dur sous son en-tête. Si la page défile ou
+  // est redimensionnée, il se détacherait de sa colonne : on le ferme plutôt
+  // que de le laisser mentir sur ce qu'il filtre. Le défilement DANS le
+  // popover, lui, ne doit pas le fermer — d'où le filtre sur la cible.
+  const surMouvement = (ev) => {
+    if (!popCible) return;
+    if (ev.target && ev.target.closest && ev.target.closest('#filtre-popover')) return;
+    fermeFiltre();
+  };
+  window.addEventListener('resize', surMouvement);
+  window.addEventListener('scroll', surMouvement, true);
+
   const urlTheme = new URLSearchParams(window.location.search).get('theme');
   const themeEnregistre = urlTheme || (() => {
     try {
@@ -1148,6 +1666,7 @@ async function chargeQC() {
     const resCand = await fetch('/api/qc/candidates?limit=100');
     if (resCand.ok) {
       const candidats = await resCand.json();
+      candidatsQC = candidats;
       afficheCandidatsQC(candidats);
       const candCount = $('qc-candidats-count');
       if (candCount) candCount.textContent = String(candidats.length);
@@ -1246,10 +1765,15 @@ function afficheCandidatsQC(candidats) {
   if (!corps) return;
   corps.innerHTML = '';
 
+  // Pas de pagination ici — le serveur plafonne à 100. Le filtre s'applique
+  // donc directement à ce qui est rendu.
+  const visibles = lignesVisibles('candidats', candidats);
+  majBarreFiltre('candidats', visibles.length, candidats.length);
+
   const svgPlay = '<svg viewBox="0 0 24 24" width="11" height="11" fill="currentColor"><polygon points="6 3 20 12 6 21 6 3"/></svg>';
   const svgPause = '<svg viewBox="0 0 24 24" width="11" height="11" fill="currentColor"><rect x="5" y="4" width="4" height="16" rx="1"/><rect x="15" y="4" width="4" height="16" rx="1"/></svg>';
 
-  for (const c of candidats) {
+  for (const c of visibles) {
     const tr = document.createElement('tr');
     if (c.is_reference) tr.classList.add('row-ref');
 

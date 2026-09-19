@@ -14,7 +14,7 @@
     } catch (e) {}
   })();
 </script>
-<link rel="stylesheet" href="style.css?v=21">
+<link rel="stylesheet" href="style.css?v=22">
 </head>
 <body>
 
@@ -160,20 +160,28 @@
     <audio id="player" controls preload="none"></audio>
     <p class="card-sub" id="player-sub">Cliquez un sample pour le réécouter.</p>
 
+    <!-- Barre de filtre. Le compteur et le bouton de remise à zéro sont
+         injectés par listen.js : ils ne servent à rien tant qu'aucun filtre
+         n'est posé, et le compteur doit suivre le filtre, pas la source. -->
+    <div class="barre-filtre" data-table="samples">
+      <span class="filtre-compte" data-role="compte"></span>
+      <button type="button" class="btn-filtre-reset" data-role="reset" hidden>Réinitialiser les filtres</button>
+    </div>
+
     <div class="table-scroll">
       <table id="samples">
         <thead>
           <tr>
             <th class="th-play"></th>
-            <th>Fichier</th>
-            <th>Durée</th>
-            <th>Score</th>
-            <th>Score QC</th>
-            <th>QC</th>
-            <th>Densité</th>
-            <th>Niveau</th>
-            <th>Analysé</th>
-            <th></th>
+            <th data-col="name">Fichier</th>
+            <th data-col="duration_ms">Durée</th>
+            <th data-col="noisy_score">Score</th>
+            <th data-col="qc_score">Score QC</th>
+            <th data-col="qc_valid">QC</th>
+            <th data-col="densite">Densité</th>
+            <th data-col="niveau">Niveau</th>
+            <th data-col="analysé">Analysé</th>
+            <th>Analyser</th>
           </tr>
         </thead>
         <tbody id="samples-corps"></tbody>
@@ -232,20 +240,33 @@
     <audio id="captures-player" controls preload="none"></audio>
     <p class="card-sub" id="captures-player-sub">Cliquez une capture pour l'écouter.</p>
 
+    <!-- La case « masquer les refus » est le raccourci qui compte : le seuil
+         de déclenchement est volontairement bas, et les refus « silence »
+         forment l'essentiel des lignes. Les filtres d'en-tête restent le
+         mécanisme principal, ceci n'est qu'un accès direct. -->
+    <div class="barre-filtre" data-table="captures">
+      <span class="filtre-compte" data-role="compte"></span>
+      <label class="filtre-case">
+        <input type="checkbox" data-role="masquer-refus">
+        <span>Masquer les refus client</span>
+      </label>
+      <button type="button" class="btn-filtre-reset" data-role="reset" hidden>Réinitialiser les filtres</button>
+    </div>
+
     <div class="table-scroll">
       <table id="captures">
         <thead>
           <tr>
             <th class="th-play"></th>
-            <th>N°</th>
-            <th>Quand</th>
-            <th>Durée</th>
-            <th>Score</th>
-            <th>Score QC</th>
-            <th>QC</th>
-            <th>Rafales</th>
-            <th style="width: 76px; text-align: center;"></th>
-            <th style="width: 76px; text-align: right;"></th>
+            <th data-col="id">N°</th>
+            <th data-col="detected_at">Quand</th>
+            <th data-col="duration_ms">Durée</th>
+            <th data-col="noisy_score">Score</th>
+            <th data-col="qc_score">Score QC</th>
+            <th data-col="qc_valid">QC</th>
+            <th data-col="noisy_count">Rafales</th>
+            <th style="width: 76px; text-align: center;">Exclure</th>
+            <th style="width: 76px; text-align: right;">Analyser</th>
           </tr>
         </thead>
         <tbody id="captures-corps"></tbody>
@@ -254,6 +275,24 @@
     <p class="empty" id="captures-vide" hidden>Aucune capture pour l'instant.</p>
   </section>
 </main>
+
+<!-- Menu de filtre d'une colonne, partagé par toutes les colonnes des trois
+     tableaux. Un `popover` natif, et pas un div en position absolue : les
+     tableaux vivent dans un `.table-scroll { overflow: auto }`, qui ROGNE
+     tout descendant positionné. Le popover est promu dans le « top layer »,
+     donc jamais rogné — et il apporte le clic extérieur et Échap nativement,
+     alors que le projet n'a aucun gestionnaire clavier à ce jour.
+
+     Il est réalimenté selon la colonne cliquée : voir initFiltres() dans
+     listen.js. -->
+<div id="filtre-popover" popover="auto" class="filtre-popover" aria-labelledby="filtre-titre">
+  <p class="filtre-titre" id="filtre-titre">Filtrer</p>
+  <div class="filtre-corps" id="filtre-corps"></div>
+  <div class="filtre-pied">
+    <button type="button" class="btn-filtre-annuler" data-role="annuler">Annuler</button>
+    <button type="button" class="btn-filtre-appliquer" data-role="appliquer">Appliquer</button>
+  </div>
+</div>
 
 <!-- Modale d'analyse. Un `<dialog>` natif : il apporte Échap, le piège de
      focus et l'inertie de l'arrière-plan sans une ligne de JavaScript. Le
@@ -377,18 +416,22 @@
           <p class="card-sub" style="margin: 0 0 8px;">
             Cliquez <strong>Analyser</strong> pour examiner les segments d'une capture et extraire les sons caractéristiques au Best-of :
           </p>
+          <div class="barre-filtre" data-table="candidats">
+            <span class="filtre-compte" data-role="compte"></span>
+            <button type="button" class="btn-filtre-reset" data-role="reset" hidden>Réinitialiser les filtres</button>
+          </div>
           <div class="table-scroll" style="max-height: 320px; overflow-y: auto;">
             <table id="qc-table-candidats" class="qc-candidates-table">
               <thead>
                 <tr>
                   <th style="width: 32px;"></th>
-                  <th>N°</th>
-                  <th>Quand</th>
-                  <th>Durée</th>
-                  <th>Score QC</th>
-                  <th style="width: 70px; text-align: center;">Extraits</th>
+                  <th data-col="id">N°</th>
+                  <th data-col="detected_at">Quand</th>
+                  <th data-col="duration_ms">Durée</th>
+                  <th data-col="qc_score">Score QC</th>
+                  <th style="width: 70px; text-align: center;" data-col="snippets_count">Extraits</th>
                   <th style="width: 80px; text-align: center;">Analyser</th>
-                  <th style="width: 70px; text-align: right;"></th>
+                  <th style="width: 70px; text-align: right;">Exclure</th>
                 </tr>
               </thead>
               <tbody id="qc-candidats-corps">
@@ -415,7 +458,7 @@
                   <th>Intervalle</th>
                   <th>Durée</th>
                   <th>Son / Score</th>
-                  <th style="width: 44px; text-align: center;"></th>
+                  <th style="width: 44px; text-align: center;">Supprimer</th>
                 </tr>
               </thead>
               <tbody id="qc-bestof-corps">
@@ -438,7 +481,7 @@
   <p id="footer-info">—</p>
 </footer>
 
-<script src="listen.js?v=23"></script>
+<script src="listen.js?v=25"></script>
 <script src="timeline.js?v=23"></script>
 </body>
 </html>

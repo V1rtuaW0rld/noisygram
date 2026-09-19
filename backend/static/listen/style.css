@@ -9,6 +9,10 @@
   --plane: #f7f7f5;
   --surface: #ffffff;
   --ink: #1b1b1a;
+  /* `--surface-2` servait déjà plus bas (survol des lignes) sans être
+     déclarée ici : la règle était donc invalide et retombait sur transparent.
+     Déclarée, elle sert aussi de fond aux contrôles de filtre. */
+  --surface-2: #f0f0ec;
   --ink-2: #4a4a46;
   --muted: #76766f;
   --border: #e0e0da;
@@ -24,6 +28,7 @@
     color-scheme: dark;
     --plane: #16161a;
     --surface: #1e1e23;
+    --surface-2: #26262c;
     --ink: #ececec;
     --ink-2: #b9b9b4;
     --muted: #8a8a85;
@@ -38,6 +43,7 @@
   color-scheme: dark;
   --plane: #16161a;
   --surface: #1e1e23;
+  --surface-2: #26262c;
   --ink: #ececec;
   --ink-2: #b9b9b4;
   --muted: #8a8a85;
@@ -1104,6 +1110,287 @@ dialog#modal-qc::backdrop {
   border-radius: 8px;
   background: color-mix(in srgb, #ca8a04 15%, transparent);
   color: #ca8a04;
+  font-weight: 600;
+}
+
+/* ---------------------------------------------------- filtres de colonnes
+   Le projet n'avait aucun filtre : ces règles posent la barre au-dessus des
+   tableaux et le menu qui s'ouvre depuis un en-tête. Rien ici n'est
+   décoratif — l'état d'un filtre doit rester lisible sans couleur. */
+
+.barre-filtre {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--plane);
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.filtre-compte {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Le texte dit déjà « N / M lignes » ; la couleur ne fait que le souligner. */
+.filtre-compte--actif {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.filtre-case {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  color: var(--ink-2);
+}
+
+.filtre-case input {
+  width: 15px;
+  height: 15px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.btn-filtre-reset {
+  font: inherit;
+  padding: 3px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--ink-2);
+  cursor: pointer;
+}
+
+.btn-filtre-reset:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* --- En-têtes : bouton de filtre et tri --- */
+
+th.th-triable {
+  cursor: pointer;
+  user-select: none;
+}
+
+th.th-triable:hover {
+  color: var(--ink-2);
+}
+
+/* ⚠️ La cible est en 24×24 comme les autres boutons de ligne : un caret de
+   10 px serait intappable au doigt. Le padding fait la taille, pas le glyphe. */
+.btn-filtre {
+  font: inherit;
+  font-size: 10px;
+  line-height: 1;
+  margin-left: 5px;
+  padding: 7px 6px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.btn-filtre:hover {
+  border-color: var(--border);
+  background: var(--surface-2);
+  color: var(--ink-2);
+}
+
+.btn-filtre--actif {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--accent);
+}
+
+th.th-filtre-actif {
+  color: var(--accent);
+}
+
+/* La flèche de tri porte l'information « trié » à elle seule : un caractère,
+   pas une image, donc il suit la police et le thème. */
+th.th-tri-asc::after { content: ' ↑'; color: var(--accent); }
+th.th-tri-desc::after { content: ' ↓'; color: var(--accent); }
+
+/* --- Le menu de filtre --- */
+
+.filtre-popover {
+  /* Le style par défaut d'un [popover] est `inset: 0; margin: auto` : on
+     l'annule ici, listen.js positionne ensuite sous l'en-tête cliqué. */
+  position: fixed;
+  inset: auto;
+  margin: 0;
+  width: 260px;
+  max-height: 60vh;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.22);
+  font-size: 12px;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.filtre-popover:popover-open {
+  display: flex;
+}
+
+/* Repli si l'API popover manque : sans top layer, il faut au moins qu'il se
+   superpose au contenu. */
+.filtre-popover--repli {
+  display: flex;
+  z-index: 50;
+}
+
+.filtre-titre {
+  margin: 0;
+  font-weight: 600;
+}
+
+.filtre-corps {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow-y: auto;
+}
+
+.filtre-section-titre {
+  margin: 0 0 4px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.filtre-choix {
+  display: block;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  padding: 4px 8px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ink-2);
+  cursor: pointer;
+}
+
+.filtre-choix:hover {
+  background: var(--surface-2);
+}
+
+.filtre-choix--actif {
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.filtre-plage {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.filtre-plage-champ {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1 1 100px;
+  color: var(--muted);
+}
+
+.filtre-plage-champ input,
+.filtre-recherche {
+  font: inherit;
+  width: 100%;
+  padding: 4px 6px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--ink);
+}
+
+.filtre-actions {
+  display: flex;
+  gap: 10px;
+  margin: 4px 0;
+}
+
+.filtre-lien {
+  font: inherit;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.filtre-liste {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 34vh;
+  overflow-y: auto;
+  border-top: 1px solid var(--border);
+  padding-top: 6px;
+}
+
+.filtre-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 4px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.filtre-item:hover {
+  background: var(--surface-2);
+}
+
+.filtre-item input {
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.filtre-pied {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+}
+
+.btn-filtre-annuler,
+.btn-filtre-appliquer {
+  font: inherit;
+  padding: 4px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.btn-filtre-annuler {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--ink-2);
+}
+
+/* `--plane` plutôt que #fff : en thème sombre l'accent est un vert clair, et
+   du texte blanc dessus serait illisible. */
+.btn-filtre-appliquer {
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: var(--plane);
   font-weight: 600;
 }
 

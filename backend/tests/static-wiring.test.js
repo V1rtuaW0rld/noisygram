@@ -95,6 +95,32 @@ console.log('\n■ Page d\'écoute directe');
   const varsManquantes = [...utilisees].filter((v) => !declarees.has(v));
   check('toutes les variables CSS lues existent', varsManquantes.length === 0, varsManquantes.join(', '));
 
+  // --- Filtres de colonne -------------------------------------------------
+  // Les descripteurs vivent dans listen.js (COLONNES), les colonnes dans le
+  // HTML (data-col). Les deux moitiés doivent rester en vis-à-vis : un
+  // data-col sans descripteur ne ferait RIEN au clic — un bouton inerte, la
+  // panne la plus difficile à voir — et un descripteur sans data-col serait
+  // une colonne décrite mais introuvable.
+  const clesDesc = [...js.matchAll(/^\s{4}(?:'([^']+)'|([A-Za-z_]\w*)):\s*\{\s*libelle/gm)]
+    .map((m) => m[1] || m[2]);
+  const clesHtml = [...html.matchAll(/\bdata-col="([^"]+)"/g)].map((m) => m[1]);
+  const sansDesc = clesHtml.filter((c) => !clesDesc.includes(c));
+  const sansHtml = clesDesc.filter((c) => !clesHtml.includes(c));
+  check('chaque data-col du HTML a un descripteur',
+    clesHtml.length > 0 && sansDesc.length === 0,
+    sansDesc.length ? `sans descripteur : ${sansDesc.join(', ')}` : `${clesHtml.length} colonne(s)`);
+  check('chaque descripteur a une colonne dans le HTML', sansHtml.length === 0,
+    sansHtml.join(', '));
+
+  // Le piège de ce moteur : filtrer `pagination.X.items` au lieu de la copie
+  // rendue. Le rafraîchissement de 4 s réassigne ce tableau, donc un filtre
+  // écrit dedans disparaît sans un mot — et le tableau semble « oublier » ce
+  // qu'on vient de cocher.
+  for (const t of ['samples', 'captures', 'candidats']) {
+    check(`le rendu « ${t} » passe par le moteur de filtre`,
+      new RegExp(`lignesVisibles\\('${t}'`).test(js));
+  }
+
   // Le thème sombre doit être déclaré sous les DEUX portées, sinon il n'est
   // appliqué qu'à moitié — le défaut est déjà documenté pour le dashboard.
   check('valeurs sombres sous prefers-color-scheme',
