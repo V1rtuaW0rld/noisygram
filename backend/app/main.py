@@ -21,13 +21,14 @@ import time
 from contextlib import asynccontextmanager
 from pathlib import PurePosixPath
 
-from fastapi import FastAPI, Response
+from fastapi import Depends, FastAPI, Response
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import db, projet
 from .api import events, health, ondemand as ondemand_api, projet as projet_api
 from .api import qc as qc_api, stats
+from .api.dependances import projet_consulte
 from .classifier.factory import build_classifier
 from .classifier.yamnet_litert import NOISY_CLASS_NAMES
 from .config import settings
@@ -223,9 +224,14 @@ if settings.sert_capture:
 
 # L'API REST du dashboard : rôle admin uniquement.
 if settings.sert_admin:
-    app.include_router(events.router, prefix="/api")
-    app.include_router(stats.router, prefix="/api")
-    app.include_router(qc_api.router)
+    # `projet_consulte` pose, une fois par requête, le projet CONSULTÉ (paramètre
+    # `?projet=`). La politique RLS filtre ensuite toute seule : il ne reste
+    # qu'à lui dire qui regarde. Sans ce paramètre, c'est le projet actif.
+    app.include_router(events.router, prefix="/api",
+                       dependencies=[Depends(projet_consulte)])
+    app.include_router(stats.router, prefix="/api",
+                       dependencies=[Depends(projet_consulte)])
+    app.include_router(qc_api.router, dependencies=[Depends(projet_consulte)])
     app.include_router(projet_api.router)
     # Le RELAIS du direct : la page d'écoute vit sur l'admin, mais le poste est
     # connecté à capture. Cette route fait le pont.

@@ -11,6 +11,7 @@ l'import casse silencieusement le reload (G14).
 from __future__ import annotations
 
 import logging
+from contextvars import ContextVar
 from typing import Any, Optional
 
 import asyncpg
@@ -448,9 +449,38 @@ async def migrate() -> int:
     return courante
 
 
+# Projet CONSULTÉ, quand il diffère de l'actif. Posé une fois par requête HTTP
+# par la dépendance `api/dependances.py`, et lu ici. Sur une requête sans
+# paramètre — ou hors requête, comme la capture — il reste None et le projet
+# actif s'applique.
+#
+# Voir et surveiller sont deux gestes distincts : consulter un autre projet ne
+# doit pas interrompre la campagne en cours.
+_projet_vue: ContextVar[int | None] = ContextVar("projet_vue", default=None)
+
+
+def definir_projet_vue(projet_id: int | None):
+    """Pose le projet consulté, et rend le jeton qui permet de le défaire.
+
+    Le jeton est rendu plutôt que gardé : une dépendance FastAPI l'utilise pour
+    remettre l'état d'aplomb en fin de requête, même si l'endpoint lève.
+    """
+    return _projet_vue.set(projet_id)
+
+
+def oublier_projet_vue(jeton) -> None:
+    _projet_vue.reset(jeton)
+
+
 async def _projet_actif_id() -> int | None:
-    """L'identifiant du projet actif. `projets` ne porte pas de RLS, donc cette
-    lecture ne peut pas se mordre la queue."""
+    """Le projet à porter : celui qu'on CONSULTE s'il est posé, sinon l'actif.
+
+    `projets` ne porte pas de RLS, donc cette lecture ne peut pas se mordre la
+    queue.
+    """
+    consulte = _projet_vue.get()
+    if consulte is not None:
+        return consulte
     v = await pool().fetchval("SELECT id FROM projets WHERE actif LIMIT 1")
     return int(v) if v is not None else None
 
