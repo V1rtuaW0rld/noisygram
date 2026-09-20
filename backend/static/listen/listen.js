@@ -1690,9 +1690,38 @@ async function activeProjet(projet) {
   }
 }
 
+async function majNomProjet() {
+  const el = $('projet-courant');
+  if (!el) return;
+  try {
+    const d = await api('/api/projets');
+    const consulte = projetVue == null
+      ? null
+      : (d.projets || []).find((p) => p.id === projetVue);
+    const vu = consulte || d.actif;
+    el.textContent = (vu && vu.nom) || 'aucun projet';
+
+    // ⚠️ Consulter un projet qui n'est PAS celui que la capture surveille doit
+    // se voir. Sans ça, on lit un ancien relevé en croyant regarder la campagne
+    // en cours — et « la nuit a été calme » serait faux.
+    const enConsultation = consulte && d.actif && consulte.id !== d.actif.id;
+    const bouton = $('btn-projet');
+    if (bouton) {
+      bouton.classList.toggle('titre-projet--consulte', !!enConsultation);
+      bouton.title = enConsultation
+        ? 'Tu consultes « ' + consulte.nom + ' ». La capture surveille « '
+          + d.actif.nom + ' ». Cliquer pour changer.'
+        : 'Changer de projet';
+    }
+  } catch (err) {
+    el.textContent = 'projets illisibles';
+  }
+}
+
 function initProjet() {
   const d = $('projet');
   if (!d) return;
+  majNomProjet();
   $('btn-projet').addEventListener('click', () => ouvreProjet());
   $('projet-fermer').addEventListener('click', () => d.close());
   $('projet-retour').addEventListener('click', () => {

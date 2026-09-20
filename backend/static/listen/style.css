@@ -1545,4 +1545,44 @@ dialog#projet .modale-pied button.btn-primary {
   font-weight: 600;
 }
 
+/* Le projet courant, en pastille DANS le titre. Cliquable — c'est ce qui ouvre
+   la modale — mais discret : il informe avant d'inviter.
+   Il vivait avant dans la barre de navigation, avec « Projet » comme texte de
+   départ : le libellé ne devenait le vrai nom qu'à l'ouverture de la modale,
+   donc la page changeait d'aspect après une simple visite. */
+.titre-projet {
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  margin-left: 8px;
+  padding: 2px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--ink-2);
+  cursor: pointer;
+  vertical-align: middle;
+}
+
+.titre-projet:hover,
+.titre-projet:focus-visible {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* Consulter un projet que la capture NE surveille PAS. Le texte le dit — «
+   (consultation) » est ajouté par le CSS — et la bordure passe en pointillés :
+   la couleur seule ne suffirait pas à signaler, et se tromper de projet ferait
+   lire un ancien relevé comme la campagne en cours. */
+.titre-projet--consulte {
+  border-style: dashed;
+  border-color: var(--warn);
+  color: var(--warn);
+}
+
+.titre-projet--consulte::after {
+  content: ' (consultation)';
+  font-weight: 400;
+}
+
 

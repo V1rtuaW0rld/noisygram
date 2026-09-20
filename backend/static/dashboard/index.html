@@ -14,13 +14,21 @@
     } catch (e) {}
   })();
 </script>
-<link rel="stylesheet" href="style.css?v=18">
+<link rel="stylesheet" href="style.css?v=19">
 </head>
 <body>
 
 <header>
   <div class="header-left">
-    <h1><a href="https://noisy.virtuaworld.org/dashboard/" class="titre-lien">Noisygram</a></h1>
+    <h1>
+      <a href="https://noisy.virtuaworld.org/dashboard/" class="titre-lien">Noisygram</a>
+      <!-- Le projet courant vit DANS le titre, pas dans la barre de navigation.
+           Il y était en bouton séparé, avec « Projet » comme texte de départ :
+           le libellé ne devenait le vrai nom qu'à l'ouverture de la modale,
+           donc la page changeait d'aspect après une simple visite. -->
+      <button type="button" id="btn-projet" class="titre-projet"
+              title="Changer de projet">📁 <span id="projet-courant">…</span></button>
+    </h1>
     <p class="sub" id="header-sub">—</p>
   </div>
   <nav class="header-center">
@@ -41,7 +49,6 @@
          simplement que la page existe ailleurs. -->
     <a href="https://noisy.virtuaworld.org/listen/" class="nav-item">🎧 ECOUTER</a>
     <button type="button" id="btn-qc" class="nav-item btn-qc" style="background:none;border:none;cursor:pointer;font:inherit;">🎯 Quality Center</button>
-    <button type="button" id="btn-projet" class="nav-item" style="background:none;border:none;cursor:pointer;font:inherit;">📁 <span id="projet-courant">Projet</span></button>
   </nav>
   <div class="header-right">
     <!-- Voyant d'actualisation. Le dashboard ne reçoit AUCUNE poussée du
@@ -309,6 +316,6 @@
 </dialog>
 
 <script src="/vendor/chart.umd.min.js"></script>
-<script src="dashboard.js?v=23"></script>
+<script src="dashboard.js?v=24"></script>
 </body>
 </html>

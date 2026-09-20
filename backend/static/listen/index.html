@@ -14,13 +14,21 @@
     } catch (e) {}
   })();
 </script>
-<link rel="stylesheet" href="style.css?v=23">
+<link rel="stylesheet" href="style.css?v=24">
 </head>
 <body>
 
 <header>
   <div class="header-left">
-    <h1><a href="https://noisy.virtuaworld.org/dashboard/" class="titre-lien">Noisygram</a></h1>
+    <h1>
+      <a href="https://noisy.virtuaworld.org/dashboard/" class="titre-lien">Noisygram</a>
+      <!-- Le projet courant vit DANS le titre, pas dans la barre de navigation.
+           Il y était en bouton séparé, avec « Projet » comme texte de départ :
+           le libellé ne devenait le vrai nom qu'à l'ouverture de la modale,
+           donc la page changeait d'aspect après une simple visite. -->
+      <button type="button" id="btn-projet" class="titre-projet"
+              title="Changer de projet">📁 <span id="projet-courant">…</span></button>
+    </h1>
     <p class="sub" id="header-sub">Écouter en direct — ce que le poste extérieur entend, maintenant.</p>
   </div>
   <nav class="header-center">
@@ -29,7 +37,6 @@
     <a href="https://noisy.virtuaworld.org/dashboard/" class="nav-item">📊 Dashboard</a>
     <span class="nav-item active" aria-current="page">🎧 ECOUTER</span>
     <button type="button" id="btn-qc" class="nav-item btn-qc" style="background:none;border:none;cursor:pointer;font:inherit;">🎯 Quality Center</button>
-    <button type="button" id="btn-projet" class="nav-item" style="background:none;border:none;cursor:pointer;font:inherit;">📁 <span id="projet-courant">Projet</span></button>
   </nav>
   <div class="header-right">
     <span class="direct" id="lien" data-etat="attente" role="status" aria-live="polite">
@@ -506,7 +513,7 @@
   </div>
 </dialog>
 
-<script src="listen.js?v=27"></script>
+<script src="listen.js?v=28"></script>
 <script src="timeline.js?v=23"></script>
 </body>
 </html>
