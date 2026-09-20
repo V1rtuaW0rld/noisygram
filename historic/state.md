@@ -1805,3 +1805,95 @@ capture sur le mauvais groupe **sans que rien ne le dise**.
 | `?v=` | client : `app.js` → **19**. Dashboard : `dashboard.js` → **28** |
 
 **Toujours pas vu dans un navigateur au moment d'écrire ces lignes.**
+
+---
+
+## 21. Donner une référence à un projet qui existe (20/09/2026)
+
+### 21.1 Le manque
+
+L'upload d'un extrait WAV/MP3 **existait** depuis la troisième voie de la modale
+(`POST /api/projets/extrait`) — mais **uniquement dans le formulaire « Nouveau projet »**.
+Une fois le projet créé, sa carte n'offrait que Voir / Surveiller / Renommer / 🗑 : pour
+enrichir un groupe, il fallait fabriquer un second projet pour la même chose.
+
+La modale promettait pourtant le contraire, dans son propre texte d'aide : « le best-of se
+remplira ensuite par « + Réf » ». Le bouton **+ Réf** existe — sur la page d'écoute, dans
+la modale d'analyse, où il marque un segment comme référence dans le catalogue. Écrite dans
+la modale projet, la phrase renvoyait à un contrôle qui n'y était pas.
+
+### 21.2 La décision : rien n'est coché d'office
+
+Chaque carte gagne un bouton **« Référence… »** : il ouvre la même zone de dépôt, relance
+`POST /api/projets/extrait`, et remplit la liste en **union** — les classes déjà surveillées
+cochées, celles que l'extrait apporte **décochées**, chacune étiquetée « surveillée » ou
+« apportée par l'extrait ».
+
+C'est la conséquence directe de ce que le §5.4 a établi : **le score est le MAX sur le
+groupe**. Une classe ajoutée ne peut donc qu'**augmenter** le score, jamais le baisser —
+élargir le groupe desserre la détection sans que le seuil ait bougé d'un pouce. Un ajout
+d'office serait un élargissement qu'on n'a pas demandé, et le seuil calibré cesserait
+silencieusement d'être le bon. L'ajout est donc un geste.
+
+### 21.3 Pourquoi la liste est une UNION
+
+C'est le piège de cette fonctionnalité, et il ne se voit pas à la lecture : si la liste ne
+montrait que les classes **détectées dans l'extrait**, une classe surveillée sur laquelle
+l'extrait ne réagit pas disparaîtrait de la liste — donc du projet à l'enregistrement. Un
+extrait de dix secondes de klaxon aurait ainsi pu retirer « Air horn, truck horn » sans que
+personne ne le demande ni ne le voie.
+
+La liste part donc des classes surveillées, et les détections s'y ajoutent. Ce que
+l'utilisateur décoche est un geste ; ce qu'il n'a jamais vu ne peut pas disparaître.
+
+Répondre à la question « remplacer ou ajouter » par une liste à cocher rend la troisième
+réponse possible : **l'utilisateur tranche, classe par classe**, et il voit ce qu'il
+tranche.
+
+### 21.4 La modale projet est DUPLIQUÉE
+
+Elle est écrite **deux fois**, mot pour mot : `dashboard/dashboard.js` (`carteProjet`,
+`rendNouveau`, `afficheClasses`, `traiteExtrait`…) et `listen/listen.js` (`_carte`,
+`rendNouveau`…). Rien ne relie les deux copies, et les noms diffèrent (`noteProjet` d'un
+côté, `_projetNote` de l'autre) — assez pour qu'un remplacement global ne les traite pas
+ensemble.
+
+Toute modification doit donc être faite **deux fois**, et `?v=` incrémenté sur les deux
+pages. Le test de câblage le vérifie maintenant par une boucle sur les deux fichiers : la
+correction des phrases du redémarrage, faite d'un seul côté au §20.5, était passée
+inaperçue.
+
+### 21.5 Corrigé au passage
+
+Le §20.5 annonçait avoir retiré le mensonge du redémarrage. Il n'en avait retiré que
+**deux occurrences sur douze**. Il en restait dix, dont **cinq visibles** :
+
+| | |
+|---|---|
+| `dashboard.js` | texte d'en-tête de la liste des projets, infobulle « Surveiller ce projet » |
+| `listen.js` | les deux mêmes, plus le `confirm()` d'activation |
+| + commentaires | les deux `index.html`, et trois commentaires JS |
+
+« Il faut redémarrer » invitait à un geste inutile ; ne pas le faire laissait la capture
+compter le mauvais son sans avertissement. C'est la phrase elle-même qui était le défaut.
+
+### 21.6 Vérifications
+
+| | |
+|---|---|
+| `static-wiring.test.js` | **101** vérifications, toutes OK (87 avant) — dont 12 en boucle sur les DEUX pages : bouton présent, URL `/classes`, classes actuelles pré-cochées, liste en union, provenances nommées |
+| `worklet.test.js` | 54 vérifications, toutes OK |
+| `?v=` | dashboard : `dashboard.js` → **29** ; écoute : `listen.js` → **32** |
+| Route | `PATCH /api/projets/{id}/classes` — même refus qu'à la création si le groupe est vide |
+
+**Toujours pas vu dans un navigateur.**
+
+### 21.7 Ouvert, et signalé
+
+**Le seuil du projet ne décide pas.** `ws/session.py:592` accepte ou refuse avec
+`settings.noisy_threshold` — la valeur **globale** de `.env` — alors que le classifieur est
+construit avec le seuil **du projet** et que `describe()` annonce bien ce dernier. Les deux
+valent 0,25 aujourd'hui, donc l'écart est invisible ; il cesserait de l'être à la première
+calibration. La doctrine « le seuil appartient au projet » (`projet.py`, §5.4) n'est vraie
+qu'à l'affichage. **Non corrigé ici** : c'est la ligne qui décide de ce qui est compté, et
+elle se change sur décision, pas au détour d'une fonctionnalité.

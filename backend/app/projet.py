@@ -222,6 +222,39 @@ async def supprimer(projet_id: int) -> dict:
     return {"nom": cible["nom"], "n_evenements": n}
 
 
+async def definir_classes(projet_id: int, classes: Any) -> dict | None:
+    """Change le GROUPE SURVEILLÉ d'un projet existant.
+
+    C'est ce qui permet de donner un extrait de son à un projet déjà créé,
+    plutôt que d'en fabriquer un nouveau pour la même chose. Le groupe n'étant
+    pas gravé dans le modèle, la capture le suivra d'elle-même (voir
+    app/surveillance.py) — cette fonction ne fait qu'écrire la donnée.
+
+    ⚠️ La taille du groupe n'est PAS neutre. Le score est le MAX sur le groupe :
+    ajouter une classe ne peut donc qu'AUGMENTER le score, jamais le baisser, et
+    desserre la détection sans que le seuil ait bougé. C'est à l'appelant de
+    faire choisir — cette fonction applique, elle ne décide pas.
+    """
+    propres = normaliser(classes)
+    if not propres:
+        # Même refus qu'à la création : un projet sans classe laisserait la
+        # capture classer tout à zéro et refuser chaque épisode.
+        raise ValueError("un projet sans aucune classe ne surveillerait rien")
+    r = await db.fetchrow(
+        # `json.dumps` ET le cast `::jsonb`, les deux — voir `creer`.
+        """
+        UPDATE projets SET classes = $1::jsonb, updated_at = now()
+        WHERE id = $2
+        RETURNING id, nom, terme, classes, seuil, actif
+        """,
+        json.dumps(propres),
+        projet_id,
+    )
+    if r:
+        log.info("projet « %s » → %s", r["nom"], propres)
+    return _ligne(r) if r else None
+
+
 async def definir_seuil(projet_id: int, seuil: float) -> None:
     if not 0.0 <= seuil <= 1.0:
         raise ValueError(f"seuil hors de [0,1] : {seuil}")

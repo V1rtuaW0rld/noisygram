@@ -1614,8 +1614,9 @@ async function interroge() {
 
     // ⚠️ « Voir » est sur TOUTES les cartes, y compris celle qui est surveillée.
     // Sans ça, revenir au projet en cours après en avoir consulté un autre
-    // demandait de le RÉACTIVER — donc un redémarrage de capture pour un simple
-    // changement de vue. C'est le seul chemin de retour, il doit toujours exister.
+    // demandait de le RÉACTIVER — un basculement de ce que la capture surveille
+    // pour un simple changement de vue. C'est le seul chemin de retour, il doit
+    // toujours exister.
     const estVu = (projetVue == null && actif) || projetVue === projet.id;
     const voir = document.createElement('button');
     voir.type = 'button';
@@ -1628,13 +1629,13 @@ async function interroge() {
     actions.appendChild(voir);
 
     // « Surveiller » n'apparaît QUE sur les autres : le proposer sur le projet
-    // déjà surveillé inviterait à redémarrer la capture pour rien.
+    // déjà surveillé inviterait à croire qu'on peut surveiller deux projets.
     if (!actif) {
       const surveiller = document.createElement('button');
       surveiller.type = 'button';
       surveiller.className = 'btn-primary';
       surveiller.textContent = 'Surveiller ce projet';
-      surveiller.title = 'La capture le surveillera après redémarrage';
+      surveiller.title = 'La capture le prendra en compte dans les 15 secondes';
       surveiller.addEventListener('click', () => activeProjet(projet));
       actions.appendChild(surveiller);
     }
@@ -1645,6 +1646,16 @@ async function interroge() {
     renommer.title = 'Changer le nom — ni les classes ni le seuil ne bougent';
     renommer.addEventListener('click', () => renommeProjet(projet));
     actions.appendChild(renommer);
+
+    // Donner un extrait à un projet EXISTANT. Sans ce bouton, enrichir un
+    // groupe demandait d'en créer un second pour la même chose — et l'aide de
+    // la modale renvoyait à un « + Réf » qui vit sur la page d'écoute.
+    const reference = document.createElement('button');
+    reference.type = 'button';
+    reference.textContent = 'Référence…';
+    reference.title = 'Donner un extrait du son, et voir les classes qu\'il apporte';
+    reference.addEventListener('click', () => referenceProjet(projet, carte));
+    actions.appendChild(reference);
 
     // La poubelle dit ce qu'elle emporte dans son infobulle : un bouton
     // destructeur qui ne dit pas ce qu'il détruit est un piège.
@@ -1709,7 +1720,8 @@ async function interroge() {
     const enTete = document.createElement('p');
     enTete.className = 'card-sub';
     enTete.textContent = 'La capture ne surveille qu\'un projet à la fois. '
-      + 'Consulter est instantané ; surveiller demande un redémarrage de la capture.';
+      + 'Consulter est instantané ; surveiller aussi — le poste de terrain est '
+      + 'prévenu et redémarre sa capture audio dans les 15 secondes.';
     corps.appendChild(enTete);
     for (const p of data.projets) corps.appendChild(carteProjet(p, p.actif));
 
@@ -1725,8 +1737,8 @@ async function interroge() {
     const aide = document.createElement('p');
     aide.className = 'card-sub';
     aide.textContent = 'Il est conseillé de nommer en anglais, et de fournir un '
-      + 'court extrait du son cherché. Un projet sans nom ni référence fonctionne '
-      + 'aussi : le best-of se remplira ensuite par « + Réf ».';
+      + 'court extrait du son cherché. Un projet sans extrait fonctionne aussi : '
+      + 'tu pourras lui en donner un plus tard par « Référence… », sur sa carte.';
     corps.appendChild(aide);
 
     const mk = (label, ph, cle) => {
@@ -1873,18 +1885,39 @@ async function interroge() {
     }
   }
 
-  function afficheClasses(items) {
-    const zone = refsNouveau.classes;
+  // `actuelles` : le groupe DÉJÀ surveillé, quand on enrichit un projet
+  // existant. Absent à la création — il n'y a alors rien à préserver, et tout
+  // est coché.
+  function afficheClasses(items, actuelles, zoneCible) {
+    const zone = zoneCible || refsNouveau.classes;
     if (!zone) return;
     zone.textContent = '';
-    if (!items || !items.length) return;
+    const detectees = items || [];
+
+    // ⚠️ La liste est l'UNION des classes surveillées et des classes détectées,
+    // jamais les seules détectées : un extrait où une classe surveillée ne
+    // réagit pas la ferait disparaître de la liste, donc du projet à
+    // l'enregistrement. Une régression décidée par un extrait, en silence.
+    const noms = [...(actuelles || [])];
+    for (const c of detectees) if (!noms.includes(c.nom)) noms.push(c.nom);
+    if (!noms.length) return;
+
+    const parNom = new Map(detectees.map((c) => [c.nom, c]));
+
     const p = document.createElement('p');
     p.className = 'card-sub';
-    p.textContent = 'Décoche les classes qui ne conviennent pas :';
+    p.textContent = actuelles
+      ? 'Les classes surveillées sont cochées ; celles que l\'extrait apporte ne '
+        + 'le sont pas — le score étant le maximum du groupe, en ajouter une ne '
+        + 'peut que le faire monter.'
+      : 'Décoche les classes qui ne conviennent pas :';
     zone.appendChild(p);
+
     const liste = document.createElement('div');
     liste.className = 'projet-classes';
-    for (const c of items) {
+    for (const nom of noms) {
+      const c = parNom.get(nom) || { nom };
+      const surveillee = actuelles ? actuelles.has(nom) : true;
       const lab = document.createElement('label');
       lab.className = 'projet-classe';
       const cb = document.createElement('input');
@@ -1892,7 +1925,7 @@ async function interroge() {
       // La VALEUR est le nom du modèle : c'est lui qui part en base. Le
       // français n'est qu'un affichage.
       cb.value = c.nom;
-      cb.checked = true;
+      cb.checked = surveillee;
       cb.dataset.classe = '1';
       const s = document.createElement('span');
       s.textContent = c.nom;
@@ -1904,9 +1937,126 @@ async function interroge() {
         trad.textContent = '— ' + c.fr;
         lab.appendChild(trad);
       }
+      // D'où vient la ligne. Sans ce mot, une classe décochée ne se distingue
+      // pas d'une classe oubliée, et l'opérateur ne sait pas ce qu'il regarde.
+      if (actuelles) {
+        const marque = document.createElement('em');
+        marque.className = 'projet-classe-fr';
+        marque.textContent = surveillee ? '— surveillée' : '— apportée par l\'extrait';
+        lab.appendChild(marque);
+      }
       liste.appendChild(lab);
     }
     zone.appendChild(liste);
+  }
+
+  // Le groupe surveillé d'un projet DÉJÀ créé. Même chemin que la création
+  // (`POST /api/projets/extrait`), mais la liste part de ce qui est surveillé :
+  // les classes actuelles restent cochées, celles que l'extrait apporte
+  // arrivent décochées.
+  //
+  // ⚠️ Le score est le MAX sur le groupe : une classe ajoutée ne peut que le
+  // faire monter, donc desserrer la détection sans que le seuil ait bougé d'un
+  // pouce. Un ajout d'office serait un élargissement qu'on n'a pas demandé.
+  function referenceProjet(projet, carte) {
+    const ouverte = carte.querySelector('[data-reference]');
+    if (ouverte) { ouverte.remove(); return; }   // re-clic : on referme
+
+    const boite = document.createElement('div');
+    boite.dataset.reference = '1';
+    const depot = document.createElement('div');
+    depot.className = 'projet-depot';
+    depot.textContent = 'Dépose un WAV ou un MP3 du son à compter';
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'audio/wav,audio/mpeg,.wav,.mp3';
+    input.hidden = true;
+    depot.addEventListener('click', () => input.click());
+    depot.addEventListener('dragover', (ev) => { ev.preventDefault(); depot.classList.add('survol'); });
+    depot.addEventListener('dragleave', () => depot.classList.remove('survol'));
+    depot.addEventListener('drop', (ev) => {
+      ev.preventDefault();
+      depot.classList.remove('survol');
+      if (ev.dataTransfer.files.length) extraitPourProjet(projet, boite, ev.dataTransfer.files[0]);
+    });
+    input.addEventListener('change', () => {
+      if (input.files.length) extraitPourProjet(projet, boite, input.files[0]);
+    });
+    boite.appendChild(depot);
+    boite.appendChild(input);
+    carte.appendChild(boite);
+  }
+
+  async function extraitPourProjet(projet, boite, fichier) {
+    noteProjet('');
+    let wav;
+    try { wav = await versWav(fichier); }
+    catch (err) { noteProjet('Fichier illisible : ' + err.message, 'avert'); return; }
+
+    const zone = document.createElement('div');
+    zone.className = 'projet-classes-zone';
+    zone.textContent = 'Analyse par le modèle…';
+    boite.appendChild(zone);
+
+    let classes;
+    try {
+      const r = await fetch(avecProjet('/api/projets/extrait'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/octet-stream' },
+        body: wav,
+      });
+      if (!r.ok) {
+        let detail = 'HTTP ' + r.status;
+        try { const c = await r.json(); if (c && c.detail) detail = c.detail; } catch (e) { /* non-JSON */ }
+        throw new Error(detail);
+      }
+      classes = (await r.json()).classes;
+    } catch (err) {
+      zone.textContent = '';
+      noteProjet('Analyse impossible : ' + err.message, 'avert');
+      return;
+    }
+
+    zone.textContent = '';
+    const actuelles = new Set(projet.classes || []);
+    afficheClasses(classes, actuelles, zone);
+
+    const nouvelles = (classes || []).map((c) => c.nom).filter((n) => !actuelles.has(n));
+    const resume = document.createElement('p');
+    resume.className = 'card-sub';
+    resume.textContent = actuelles.size + ' classe(s) surveillée(s) aujourd\'hui · '
+      + nouvelles.length + ' apportée(s) par l\'extrait.';
+    zone.appendChild(resume);
+
+    const appliquer = document.createElement('button');
+    appliquer.type = 'button';
+    appliquer.className = 'btn-primary';
+    appliquer.textContent = 'Appliquer au projet';
+    appliquer.addEventListener('click', () => appliqueClasses(projet, zone, appliquer));
+    zone.appendChild(appliquer);
+  }
+
+  async function appliqueClasses(projet, zone, bouton) {
+    const cases = [...zone.querySelectorAll('input[data-classe]')];
+    const classes = cases.filter((c) => c.checked).map((c) => c.value);
+    if (!classes.length) {
+      noteProjet('Un projet sans aucune classe ne surveillerait rien : garde au '
+        + 'moins celle que tu comptes.', 'avert');
+      return;
+    }
+    bouton.disabled = true;
+    try {
+      const r = await api('/api/projets/' + projet.id + '/classes', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ classes }),
+      });
+      noteProjet(r.message, 'ok');
+      await rendProjet();
+    } catch (err) {
+      noteProjet('Modification refusée : ' + err.message, 'avert');
+      bouton.disabled = false;
+    }
   }
 
   async function proposeClasses(terme) {

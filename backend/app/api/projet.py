@@ -56,6 +56,13 @@ class ProjetCree(BaseModel):
     seuil: float | None = None
 
 
+class ProjetClasses(BaseModel):
+    """Le nouveau groupe surveillé. Au moins une classe — même règle qu'à la
+    création : un projet sans classe refuserait chaque épisode en silence."""
+
+    classes: list[str]
+
+
 class ProjetRenomme(BaseModel):
     nom: str
     terme: str | None = None
@@ -322,6 +329,35 @@ async def renommer(projet_id: int, payload: ProjetRenomme) -> dict[str, Any]:
     if r is None:
         raise HTTPException(404, f"projet {projet_id} introuvable")
     return {"projet": r}
+
+
+@router.patch("/{projet_id}/classes")
+async def changer_classes(projet_id: int, payload: ProjetClasses) -> dict[str, Any]:
+    """Change le groupe surveillé d'un projet — sans en créer un nouveau.
+
+    C'est ce qui permet de donner un extrait de son à un projet DÉJÀ créé. Le
+    groupe n'étant pas gravé dans le modèle, la capture le suit d'elle-même au
+    prochain ping du poste (voir `app/surveillance.py`) : rien à redémarrer.
+
+    ⚠️ Le score est le MAX sur le groupe : une classe ajoutée ne peut donc que
+    faire MONTER le score, jamais le baisser. Élargir le groupe desserre la
+    détection sans que le seuil ait bougé d'un pouce — c'est précisément
+    pourquoi l'interface ne coche PAS les classes apportées par un extrait, et
+    laisse l'opérateur les ajouter sciemment.
+    """
+    try:
+        maj = await projet.definir_classes(projet_id, payload.classes)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    if maj is None:
+        raise HTTPException(404, f"projet {projet_id} introuvable")
+    return {
+        "projet": maj,
+        "message": (
+            f"« {maj['nom']} » surveille maintenant {len(maj['classes'])} "
+            "classe(s). La capture le suit sans redémarrage."
+        ),
+    }
 
 
 @router.delete("/{projet_id}")

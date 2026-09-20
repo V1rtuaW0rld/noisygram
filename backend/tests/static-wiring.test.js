@@ -504,6 +504,46 @@ console.log('\n■ Routes');
   check('la route de rafale est déclarée', routes.some((r) => r.chemin === '/events/sequence/{event_id}'));
 }
 
+// ------------------------------------------- référence sur un projet existant
+
+console.log('\n■ Référence sur un projet existant');
+{
+  // ⚠️ La modale projet est DUPLIQUÉE mot pour mot sur le dashboard et sur la
+  // page d'écoute, et rien ne relie les deux copies. Une correction faite d'un
+  // seul côté laisse l'autre mentir — c'est déjà arrivé sur les phrases du
+  // redémarrage, corrigées d'un côté et pas de l'autre. D'où la boucle.
+  for (const page of ['dashboard', 'listen']) {
+    const fichier = page === 'listen' ? 'listen.js' : 'dashboard.js';
+    const js = lire(path.join(STATIC, page, fichier));
+
+    check(`${page} : le bouton « Référence… » existe`, /Référence…/.test(js));
+    check(`${page} : la référence s'applique au projet`, /'\/classes'/.test(js));
+    check(`${page} : les classes actuelles arrivent pré-cochées`,
+      /cb\.checked = surveillee/.test(js));
+    // La liste est l'UNION des classes surveillées et des classes détectées.
+    // Si elle ne montrait que les détections, un extrait où une classe
+    // surveillée ne réagit pas la retirerait du projet à l'enregistrement —
+    // une régression silencieuse décidée par un extrait.
+    check(`${page} : la liste part des classes surveillées`,
+      /const noms = \[\.\.\.\(actuelles \|\| \[\]\)\]/.test(js));
+    // Le score est le MAX du groupe : une classe ajoutée ne peut que le faire
+    // monter. L'ajout doit donc être un geste, jamais un défaut — la case n'est
+    // cochée que si la classe est DÉJÀ surveillée.
+    check(`${page} : seules les classes surveillées sont cochées`,
+      /const surveillee = actuelles \? actuelles\.has\(nom\) : true/.test(js));
+    check(`${page} : les deux provenances sont nommées`,
+      /— surveillée/.test(js) && /apportée par l.{0,2}extrait/.test(js));
+  }
+
+  const api = lire(path.join(__dirname, '..', 'app', 'api', 'projet.py'));
+  check('la route de changement de classes est déclarée',
+    /@router\.patch\("\/\{projet_id\}\/classes"\)/.test(api));
+  // Sans classes, la capture classerait tout à zéro et refuserait chaque
+  // épisode : une panne qui ressemble à « le poste n'envoie rien ».
+  check('un projet sans aucune classe est refusé',
+    /ne surveillerait rien/.test(lire(path.join(__dirname, '..', 'app', 'projet.py'))));
+}
+
 // ---------------------------------------------------------------- worklet
 
 console.log('\n■ Worklet');

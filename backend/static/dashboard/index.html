@@ -308,8 +308,8 @@
 
      ⚠️ VOIR et SURVEILLER sont deux gestes distincts : consulter un projet
      bascule la vue instantanément, l'activer change ce que la CAPTURE
-     surveille et exige un redémarrage (l'Interpreter LiteRT n'est pas
-     thread-safe). -->
+     surveille. Les deux sont immédiats — le groupe surveillé n'est pas gravé
+     dans le modèle, la capture le suit d'elle-même (app/surveillance.py). -->
 <dialog id="projet" aria-labelledby="projet-titre">
   <div class="modale-boite">
     <header class="modale-tete">
@@ -326,6 +326,6 @@
 </dialog>
 
 <script src="/vendor/chart.umd.min.js"></script>
-<script src="dashboard.js?v=28"></script>
+<script src="dashboard.js?v=29"></script>
 </body>
 </html>

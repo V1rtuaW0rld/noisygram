@@ -505,9 +505,10 @@
 
      ⚠️ VOIR et SURVEILLER sont deux gestes distincts, et la modale les
      sépare : consulter un projet bascule la vue instantanément, l'activer
-     change ce que la CAPTURE surveille et exige un redémarrage (l'Interpreter
-     LiteRT n'est pas thread-safe). Les confondre ferait interrompre une
-     campagne en cours pour consulter une ancienne. -->
+     change ce que la CAPTURE surveille. Les deux sont immédiats — le groupe
+     surveillé n'est pas gravé dans le modèle, la capture le suit d'elle-même.
+     Les confondre ferait interrompre une campagne en cours pour consulter une
+     ancienne. -->
 <dialog id="projet" aria-labelledby="projet-titre">
   <div class="modale-boite">
     <header class="modale-tete">
@@ -523,7 +524,7 @@
   </div>
 </dialog>
 
-<script src="listen.js?v=31"></script>
+<script src="listen.js?v=32"></script>
 <script src="timeline.js?v=23"></script>
 </body>
 </html>
