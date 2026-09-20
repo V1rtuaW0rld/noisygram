@@ -302,11 +302,11 @@ MIGRATIONS: dict[int, str] = {
     #      `WHERE` oublié ne renvoie pas les données du voisin, il renvoie ZÉRO
     #      ligne. L'échec devient bruyant et sûr.
     #
-    #      ⚠️ CETTE MIGRATION N'ACTIVE RIEN. L'application se connecte en tant que
-    #      PROPRIÉTAIRE des tables, et un propriétaire CONTOURNE les politiques
-    #      par défaut. Sans `FORCE ROW LEVEL SECURITY`, la politique existe mais
-    #      ne filtre pas — c'est ce qui permet de la poser sans rien casser, et
-    #      de la faire mordre seulement quand le code pose le contexte.
+    #      ⚠️ CETTE MIGRATION N'ACTIVE RIEN, ET LA SUIVANTE NON PLUS. Le rôle de
+    #      l'application est SUPERUTILISATEUR, et un superutilisateur contourne
+    #      RLS quoi qu'on fasse — voir le commentaire de la migration 11, qui
+    #      détaille ce qui manque. La politique est posée pour être prête le jour
+    #      où le rôle changera ; elle ne protège RIEN aujourd'hui.
     #
     #      Le contexte se pose par `set_config('app.projet_id', …, true)`. S'il
     #      est absent, `current_setting` rend NULL, la comparaison rend NULL, et
@@ -327,6 +327,38 @@ MIGRATIONS: dict[int, str] = {
     CREATE POLICY qc_snippets_projet ON qc_snippets
         USING      (projet_id = nullif(current_setting('app.projet_id', true), '')::int)
         WITH CHECK (projet_id = nullif(current_setting('app.projet_id', true), '')::int);
+    """,
+    # 11 — FORCE ROW LEVEL SECURITY… QUI N'A AUJOURD'HUI AUCUN EFFET.
+    #
+    #      ⚠️⚠️ À LIRE AVANT DE CROIRE QUE LA SÉPARATION EST GARANTIE : elle ne
+    #      l'est PAS. L'application se connecte avec le rôle `noisygram`, qui est
+    #      **SUPERUTILISATEUR** (l'image postgres crée POSTGRES_USER ainsi), et
+    #      un superutilisateur contourne RLS INCONDITIONNELLEMENT — `FORCE` ne
+    #      s'applique qu'au PROPRIÉTAIRE des tables, pas au-dessus.
+    #
+    #      Constaté, pas supposé : avec `force=true`, et quel que soit
+    #      `app.projet_id` — y compris absent, y compris un id inexistant — le
+    #      rôle `noisygram` voit TOUJOURS les 616 événements.
+    #
+    #      Ce qui manque pour que la garantie existe vraiment :
+    #        1. un rôle d'application DÉDIÉ, ni superutilisateur ni BYPASSRLS ;
+    #        2. la propriété des tables (ou les droits équivalents) pour qu'il
+    #           puisse continuer à faire tourner les migrations ;
+    #        3. `DATABASE_URL` qui pointe dessus.
+    #      Le rôle superutilisateur reste, lui, pour la maintenance.
+    #
+    #      `FORCE` est laissé en place : il ne gêne rien aujourd'hui et il est
+    #      l'état final voulu. Le jour où le rôle changera, la politique
+    #      mordra — et les trois conditions sont déjà réunies :
+    #        · rattrapage terminé (migration 9 : 0 orphelin) ;
+    #        · les INSERT d'`events` et de `qc_snippets` renseignent `projet_id`
+    #          depuis le contexte, donc le WITH CHECK les acceptera ;
+    #        · les helpers de `db.py` posent le contexte à chaque appel.
+    #
+    #      Marche arrière : `ALTER TABLE … NO FORCE ROW LEVEL SECURITY`.
+    11: """
+    ALTER TABLE events      FORCE ROW LEVEL SECURITY;
+    ALTER TABLE qc_snippets FORCE ROW LEVEL SECURITY;
     """,
 }
 

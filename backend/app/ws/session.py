@@ -68,8 +68,10 @@ INSERT INTO events (
     id, detected_at, received_at, client_captured_at, client_id, client_seq,
     noisy_score, bark_score, mean_noisy_score, duration_ms, sample_rate,
     mp3_path, mp3_bytes, backend, model_version, top_classes,
-    noisy_count, partial, stopped_reason, window_count, wav_name, qc_score, qc_valid
-) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)
+    noisy_count, partial, stopped_reason, window_count, wav_name, qc_score, qc_valid,
+    projet_id
+) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,
+          nullif(current_setting('app.projet_id', true), '')::int)
 ON CONFLICT (client_id, client_seq) WHERE client_seq IS NOT NULL DO NOTHING
 RETURNING id
 """
@@ -83,8 +85,10 @@ INSERT_SQL = """
 INSERT INTO events (
     id, detected_at, received_at, client_captured_at, client_id, client_seq,
     noisy_score, bark_score, mean_noisy_score, duration_ms, sample_rate,
-    mp3_path, mp3_bytes, backend, model_version, top_classes
-) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+    mp3_path, mp3_bytes, backend, model_version, top_classes,
+    projet_id
+) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,
+          nullif(current_setting('app.projet_id', true), '')::int)
 ON CONFLICT (client_id, client_seq) WHERE client_seq IS NOT NULL DO NOTHING
 RETURNING id
 """

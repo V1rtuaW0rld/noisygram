@@ -183,8 +183,10 @@ async def extract_reference_snippet(req: SnippetExtractRequest) -> dict[str, Any
 
         row = await db.fetchrow(
             """
-            INSERT INTO qc_snippets (event_id, wav_name, snippet_filename, debut_s, fin_s, duration_s, sound, score)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            INSERT INTO qc_snippets (event_id, wav_name, snippet_filename, debut_s, fin_s, duration_s, sound, score,
+                                     projet_id)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8,
+                    nullif(current_setting('app.projet_id', true), '')::int)
             ON CONFLICT (snippet_filename) DO UPDATE
             SET debut_s = EXCLUDED.debut_s, fin_s = EXCLUDED.fin_s, duration_s = EXCLUDED.duration_s,
                 sound = EXCLUDED.sound, score = EXCLUDED.score
