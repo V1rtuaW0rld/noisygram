@@ -160,6 +160,11 @@ async def lifespan(app: FastAPI):
     # ~95 Mo. C'est la moitié de l'intérêt du découpage — un blocage ou un
     # plantage d'inférence côté capture ne peut plus emporter le dashboard.
     classifier = None
+    # Nom du projet surveillé, annoncé au poste de terrain dans le `hello_ack`.
+    # Le client ne fait AUCUN `fetch` : tout lui arrive par le WebSocket, et
+    # c'est justement ce que cette capture surveille qu'il doit afficher — pas
+    # ce qu'un autre écran consulterait.
+    app.state.projet_nom = None
     if settings.charge_classifieur:
         # Le groupe ET le seuil viennent du PROJET ACTIF. `garantir_projet` crée
         # le projet initial s'il n'y en a pas, remplit les seuils non calibrés
@@ -180,6 +185,7 @@ async def lifespan(app: FastAPI):
         )
         classifier = build_classifier(settings, classes_cibles, seuil)
         classifier.load()
+        app.state.projet_nom = projet_actif["nom"] if projet_actif else None
         log.info(
             "projet « %s » → %s, seuil %.2f",
             projet_actif["nom"] if projet_actif else "(aucun, défaut appliqué)",

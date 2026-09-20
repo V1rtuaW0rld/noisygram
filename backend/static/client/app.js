@@ -1060,7 +1060,17 @@ function handleServerMessage(msg) {
     state.wsReady = true;
     dot('pill-ws', 'ok', 'connecté');
     const c = msg.classifier || {};
-    log('serveur ' + msg.server_version + ' — seuil ' + c.threshold);
+    // Ce que CETTE capture surveille. Le poste de terrain est le seul écran
+    // devant lequel on se trouve quand on alimente : sans ça, on ne sait pas
+    // ce qu'on compte. Il vient du hello_ack, donc c'est bien ce qui tourne
+    // ici — pas ce qu'un autre onglet consulte.
+    const titreProjet = $('projet-courant');
+    if (titreProjet) {
+      titreProjet.textContent = msg.projet || 'projet inconnu';
+      document.title = msg.projet ? 'Noisygram — ' + msg.projet : 'Noisygram';
+    }
+    log('serveur ' + msg.server_version + ' — projet « ' + (msg.projet || '?')
+        + ' » — seuil ' + c.threshold);
     // Les seuils du client se règlent SANS redéploiement : c'est ce qui évite
     // d'aller physiquement changer un curseur dans une boîte dehors.
     const patch = msg.config_patch || {};

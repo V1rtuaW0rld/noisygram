@@ -171,6 +171,24 @@ button#theme:active, .btn-theme:active {
 h1 { margin: 0; font-size: 22px; letter-spacing: -0.01em; }
 h1 a { color: inherit; text-decoration: none; }
 h1 a:hover { color: var(--accent); }
+
+/* ⚠️ Ce fichier nomme ses variables autrement que ceux du dashboard et de
+   l'écoute : `--text-dim` et non `--muted`, `--text` et non `--ink`. Une
+   variable absente rend la déclaration invalide SANS erreur nulle part — donc
+   on n'emploie que celles qui existent ici. */
+
+/* Le tiret sépare sans peser. */
+.titre-sep {
+  color: var(--text-dim);
+  font-weight: 400;
+}
+
+/* Le projet surveillé, annoncé par la capture dans le hello_ack. Mis en avant :
+   c'est l'information qu'on vient chercher sur cet écran, puisqu'on n'a que
+   celui-là sous les yeux quand on alimente. */
+#projet-courant {
+  font-weight: 600;
+}
 h2 { margin: 0 0 12px; font-size: 13px; font-weight: 600;
      text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-dim); }
 .sub { margin: 2px 0 0; color: var(--text-dim); font-size: 13px; }

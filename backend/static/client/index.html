@@ -14,7 +14,7 @@
     } catch (e) {}
   })();
 </script>
-<link rel="stylesheet" href="style.css?v=17">
+<link rel="stylesheet" href="style.css?v=18">
 </head>
 <body>
 
@@ -37,7 +37,15 @@
 
 <header>
   <div class="header-left">
-    <h1><a href="https://noisy.virtuaworld.org/dashboard/" class="titre-lien">Noisygram</a></h1>
+    <!-- Le projet surveillé, annoncé par la capture dans le hello_ack. Le poste
+         de terrain est le seul écran devant lequel on se trouve quand on
+         alimente : il doit dire ce qu'il compte. Le texte reste vide jusqu'à la
+         connexion — afficher un nom d'avance serait le deviner. -->
+    <h1>
+      <a href="https://noisy.virtuaworld.org/dashboard/" class="titre-lien">Noisygram</a>
+      <span class="titre-sep">—</span>
+      <span id="projet-courant">…</span>
+    </h1>
   </div>
   <nav class="header-center">
     <a href="https://noisy.virtuaworld.org/dashboard/" class="nav-item">📊 Dashboard</a>
@@ -164,6 +172,6 @@
   <a href="https://noisy.virtuaworld.org/dashboard/">Dashboard →</a>
 </footer>
 
-<script src="app.js?v=17"></script>
+<script src="app.js?v=18"></script>
 </body>
 </html>

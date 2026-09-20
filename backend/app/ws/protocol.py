@@ -133,6 +133,7 @@ def hello_ack(
     limits: dict,
     config_patch: dict,
     client_id: str,
+    projet_nom: str | None = None,
 ) -> dict[str, Any]:
     return {
         "type": T_HELLO_ACK,
@@ -141,6 +142,10 @@ def hello_ack(
         "session_id": session_id,
         "server_time_ms": now_ms(),
         "client_id": client_id,
+        # Ce que CETTE capture surveille. Le poste de terrain l'affiche : sans
+        # ça, on ne sait pas ce qu'on alimente depuis le seul écran qui est
+        # devant soi.
+        "projet": projet_nom,
         "classifier": classifier_info,
         "limits": limits,
         "config_patch": config_patch,

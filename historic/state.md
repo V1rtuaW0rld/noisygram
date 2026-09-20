@@ -1598,3 +1598,93 @@ tous pour les analyser lui-même, ce qui coûte 50 à 130 Mo par jour. Trois opt
 | `tests/static-wiring.test.js` | Le câblage de la modale, l'ordre des scripts, **l'absence de l'hôte privé** dans tout ce qui est servi |
 | `tests/worklet.test.js` | Le mode écoute du worklet : exclusivité avec l'épisode, morceau partiel, `rms` maintenues |
 
+---
+
+## 19. Le projet surveillé, jusqu'à l'écran du poste (20/09/2026)
+
+> **⚠️ Ce §19 ne couvre que la navigation et l'affichage du nom de projet.** Le chantier
+> « projets » lui-même — migration 9 (chaque événement appartient à un projet), rôle
+> applicatif et policies RLS, dictionnaire terme→classes, API de gestion, bascule de
+> **vue** — est arrivé entre le §18 et ici (`598c575…be11563`) et **n'est pas consigné
+> dans ce document**. Ce qui suit le présuppose sans le redécrire.
+
+### 19.1 Deux endroits, et il ne faut pas les confondre
+
+Le dashboard et la page d'écoute servent l'**humain** : il y consulte des projets, il peut
+en regarder un **sans l'activer**. Le poste de terrain (`/client/`) est l'inverse : c'est
+l'écran devant lequel on se tient **pendant qu'on alimente la capture**. Il ne consulte
+rien, il ne choisit rien — il doit dire **ce qui tourne ici**.
+
+D'où la règle tenue dans tout ce §19 :
+
+| Écran | Ce qu'il montre |
+|---|---|
+| Titre du dashboard / de l'écoute | le projet **consulté** — celui qu'on regarde |
+| `● en direct : …` (toutes pages) | le projet **surveillé** — celui qui tourne |
+| Titre du poste de terrain | le projet **surveillé** — celui qu'on alimente |
+
+Les fusionner rendrait de nouveau possible de lire une nuit calme sur une campagne qu'on
+n'est pas en train d'enregistrer.
+
+### 19.2 Ce que la capture annonce au poste — `hello_ack.projet`
+
+Le client ne fait **aucun `fetch`** : tout lui arrive par le WebSocket. Le nom vient donc
+du `hello_ack`, et c'est bien ce qu'on veut — c'est le processus capture qui répond, donc
+le nom décrit **la capture à laquelle on est connecté**, pas ce qu'un autre onglet
+consulterait.
+
+Le chemin, quatre fichiers :
+
+| | |
+|---|---|
+| `main.py` | `app.state.projet_nom = projet_actif["nom"]`, posé **au démarrage**, dans le `if settings.charge_classifieur` — le rôle admin n'a pas de projet actif à annoncer |
+| `ws/routes.py` | le lit avec `getattr(app.state, "projet_nom", None)` : les outils de test montent l'application **sans passer par le lifespan**, et un `AttributeError` à la connexion serait un piège gratuit |
+| `ws/protocol.py` | `hello_ack(..., projet_nom=None)` → champ `projet`, **nullable** |
+| `client/app.js` | `$('projet-courant').textContent = msg.projet \|\| 'projet inconnu'`, plus `document.title` |
+
+Le groupe de classes reste figé au démarrage : **changer de projet demande de redémarrer la
+capture**, puisque l'`Interpreter` LiteRT n'est pas thread-safe. Le nom affiché suit donc
+exactement ce que la capture classe réellement — ce n'est pas une décoration.
+
+Le titre reste à `…` jusqu'à la connexion, et vaut `projet inconnu` si le champ est nul.
+**Afficher un nom d'avance serait le deviner** : le poste n'a aucun moyen de savoir avant
+que la capture le lui dise.
+
+### 19.3 Le projet entre DANS la pastille d'état (`8442947`)
+
+Côté dashboard et écoute, le projet surveillé était affiché **à côté** de la pastille
+`● en direct`. Il est maintenant **dedans** :
+
+```
+[📁 Projet]   Noisygram — aboiement        Dashboard  ECOUTER  QC    ● en direct : aboiement
+```
+
+Une seule chose à lire, au lieu de deux qu'il fallait rapprocher mentalement. Le
+séparateur `— ` est posé **en CSS**, et **seulement quand il y a un nom à séparer** : au
+premier rendu, avant la réponse de l'API, le span est vide et la pastille affiche juste
+`● connexion…`. Deux détails qui auraient donné un rendu bancal :
+
+- l'espace après le deux-points vient du `gap` de `.direct` — le remettre dans le `content`
+  l'aurait affiché en double ;
+- la portée du `<span>` ne se vérifie pas au premier `</span>` venu (celui du point) mais
+  par un vrai découpage : c'est ce qui a fait échouer le premier contrôle.
+
+### 19.4 Le piège du §19 : chaque page nomme ses variables CSS autrement
+
+`client/style.css` dit `--text-dim` et `--text` là où le dashboard et l'écoute disent
+`--muted` et `--ink`. **Une variable absente rend la déclaration invalide sans erreur nulle
+part** — le style est simplement ignoré, et on cherche la panne dans le JS. Un commentaire
+en tête du bloc le dit maintenant, à l'endroit où on écrit la règle. Ne pas généraliser un
+nom de variable d'une page à l'autre : vérifier dans le fichier.
+
+### 19.5 Vérifications
+
+| | |
+|---|---|
+| `static-wiring.test.js` | 79 vérifications, toutes OK — c'est lui qui garantit que `#projet-courant` existe dans le HTML puisque `app.js` l'appelle par `$(…)` |
+| `worklet.test.js` | 54 vérifications, toutes OK |
+| `node --check app.js` | OK |
+| `?v=` | client : `style.css` et `app.js` passés à **18**. Rebuild de l'image **nécessaire** — `COPY static` met les fichiers dans l'image (§17.21) |
+
+**Toujours pas vu dans un navigateur.**
+

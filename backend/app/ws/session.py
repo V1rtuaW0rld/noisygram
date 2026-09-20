@@ -142,10 +142,13 @@ class ConnectionSession:
         settings: Settings,
         classifier,
         hub: ListenHub | None = None,
+        projet_nom: str | None = None,
     ) -> None:
         self.ws = ws
         self.settings = settings
         self.classifier = classifier
+        # Ce que cette capture surveille, annoncé au poste dans le hello_ack.
+        self.projet_nom = projet_nom
         # Le registre partagé entre sessions. Peut être None (outils de test) :
         # tout le chemin d'écoute est alors simplement inerte, ce qui vaut mieux
         # que d'obliger chaque appelant à en construire un.
@@ -347,6 +350,7 @@ class ConnectionSession:
                 session_id=self.session_id,
                 server_version=s.server_version,
                 client_id=hello.client_id,
+                projet_nom=self.projet_nom,
                 classifier_info=self.classifier.describe(),
                 limits={
                     "max_segment_bytes": s.max_segment_bytes,
