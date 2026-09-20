@@ -110,14 +110,18 @@ async def creer(
 
     nom_propre = (nom or "").strip() or f"projet {len(await lister()) + 1}"
     r = await db.fetchrow(
+        # ⚠️ `json.dumps` ET le cast `::jsonb`, les deux. asyncpg envoie le
+        # paramètre en TEXTE et n'encode pas les objets Python lui-même : passer
+        # la liste directement lève « expected str, got list ». C'est le motif
+        # déjà en place dans `qc_client.save_grid`.
         """
         INSERT INTO projets (nom, terme, classes, seuil, actif)
-        VALUES ($1, $2, $3, $4, FALSE)
+        VALUES ($1, $2, $3::jsonb, $4, FALSE)
         RETURNING id, nom, terme, classes, seuil, actif
         """,
         nom_propre,
         (terme or "").strip() or None,
-        propres,
+        json.dumps(propres),
         seuil,
     )
     log.info("projet créé : %s → %s", nom_propre, propres)

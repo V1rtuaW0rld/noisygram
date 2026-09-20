@@ -26,7 +26,8 @@ from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import db, projet
-from .api import events, health, ondemand as ondemand_api, qc as qc_api, stats
+from .api import events, health, ondemand as ondemand_api, projet as projet_api
+from .api import qc as qc_api, stats
 from .classifier.factory import build_classifier
 from .classifier.yamnet_litert import NOISY_CLASS_NAMES
 from .config import settings
@@ -225,6 +226,7 @@ if settings.sert_admin:
     app.include_router(events.router, prefix="/api")
     app.include_router(stats.router, prefix="/api")
     app.include_router(qc_api.router)
+    app.include_router(projet_api.router)
     # Le RELAIS du direct : la page d'écoute vit sur l'admin, mais le poste est
     # connecté à capture. Cette route fait le pont.
     #
