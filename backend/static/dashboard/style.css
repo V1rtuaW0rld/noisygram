@@ -159,6 +159,13 @@ header {
   font-weight: 600;
 }
 
+/* Le bouton de navigation est un <button> : il lui faut le curseur, que l'ancre
+   et le <span> ont par nature. Posé sur `button.nav-item` et non sur
+   `.nav-item`, pour ne pas suggérer qu'ECOUTER — un simple <span> — se clique. */
+button.nav-item {
+  cursor: pointer;
+}
+
 @media (max-width: 768px) {
   header {
     flex-wrap: wrap;
@@ -623,14 +630,6 @@ dialog#modal-qc::backdrop {
 .btn-danger:hover {
   background: var(--danger);
   color: #fff;
-}
-
-.btn-qc {
-  transition: opacity 0.15s ease;
-}
-
-.btn-qc:hover {
-  opacity: 0.8;
 }
 
 .qc-candidates-table {
