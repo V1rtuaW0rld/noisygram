@@ -28,6 +28,7 @@ from fastapi.staticfiles import StaticFiles
 from . import db, projet
 from .api import events, health, ondemand as ondemand_api, qc as qc_api, stats
 from .classifier.factory import build_classifier
+from .classifier.yamnet_litert import NOISY_CLASS_NAMES
 from .config import settings
 from .logging_setup import setup_logging
 from .storage import media, ondemand
@@ -158,20 +159,30 @@ async def lifespan(app: FastAPI):
     # plantage d'inférence côté capture ne peut plus emporter le dashboard.
     classifier = None
     if settings.charge_classifieur:
-        # Le groupe surveillé vient du PROJET (migration 8). Tant qu'aucun
-        # projet n'est enregistré, `lire()` rend None et le backend applique son
-        # propre défaut — c'est ce qui rend la migration sans effet visible.
+        # Le groupe ET le seuil viennent du PROJET ACTIF. `garantir_projet` crée
+        # le projet initial s'il n'y en a pas, remplit les seuils non calibrés
+        # et rattache les données antérieures — c'est ce qui rend la migration 9
+        # sans effet visible.
         #
         # ⚠️ Le groupe est figé ICI, au démarrage. En changer demande de
         # redémarrer la capture : l'Interpreter LiteRT n'est pas thread-safe, on
         # ne le reconstruit donc pas à chaud.
-        classes_cibles, ligne_projet = await projet.lire()
-        classifier = build_classifier(settings, classes_cibles)
+        projet_actif = await projet.garantir_projet(
+            NOISY_CLASS_NAMES, settings.noisy_threshold
+        )
+        classes_cibles = projet_actif["classes"] if projet_actif else None
+        seuil = (
+            projet_actif["seuil"]
+            if projet_actif and projet_actif["seuil"] is not None
+            else settings.noisy_threshold
+        )
+        classifier = build_classifier(settings, classes_cibles, seuil)
         classifier.load()
         log.info(
-            "projet %s → %s",
-            (ligne_projet or {}).get("nom") or "(non configuré, défaut appliqué)",
+            "projet « %s » → %s, seuil %.2f",
+            projet_actif["nom"] if projet_actif else "(aucun, défaut appliqué)",
             classes_cibles or "(défaut du backend)",
+            seuil,
         )
     app.state.classifier = classifier
     app.state.started_at = time.time()

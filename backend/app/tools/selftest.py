@@ -286,10 +286,17 @@ def main(argv: list[str] | None = None) -> int:
     # On le lit AVANT le class map, parce que c'est lui qui dit quelles classes
     # doivent exister — et non l'inverse.
     classes_cibles, ligne_projet = asyncio.run(projet.lire_hors_service())
+    # Le seuil vient du projet, comme pour le service : mesurer avec celui de
+    # `.env` donnerait des verdicts qui ne correspondent pas à la production.
+    seuil_projet = (
+        ligne_projet["seuil"]
+        if ligne_projet and ligne_projet.get("seuil") is not None
+        else settings.noisy_threshold
+    )
     if ligne_projet:
         print(
             f"\n■ Projet « {ligne_projet.get('nom') or '(sans nom)'} » "
-            f"→ {classes_cibles}"
+            f"→ {classes_cibles} | seuil {seuil_projet:.2f}"
         )
 
     # -- 2. Class map ------------------------------------------------------
@@ -377,7 +384,7 @@ def main(argv: list[str] | None = None) -> int:
     backend = YamnetLitertBackend(
         model_path=settings.model_path,
         class_map_path=settings.class_map_path,
-        threshold=settings.noisy_threshold,
+        threshold=seuil_projet,
         peak_normalize=settings.peak_normalize,
         classes_cibles=classes_cibles,
     )

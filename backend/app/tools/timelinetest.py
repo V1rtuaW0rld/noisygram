@@ -122,8 +122,13 @@ def test_reel(chemin: str) -> None:
     x16 = resample_to_16k(x, sr)
     # Même raison que dans selftest : sans la config, cet outil afficherait le
     # groupe PAR DÉFAUT pendant que le service en surveille un autre.
-    classes_cibles, _ = asyncio.run(projet.lire_hors_service())
-    clf = build_classifier(settings, classes_cibles)
+    classes_cibles, projet_courant = asyncio.run(projet.lire_hors_service())
+    seuil = (
+        projet_courant["seuil"]
+        if projet_courant and projet_courant.get("seuil") is not None
+        else settings.noisy_threshold
+    )
+    clf = build_classifier(settings, classes_cibles, seuil)
     clf.load()
     noms = load_class_names(settings.class_map_path)
 
@@ -133,7 +138,9 @@ def test_reel(chemin: str) -> None:
     r = build_timeline(
         m, noms, n_samples=x16.size,
         min_score=settings.analyze_timeline_min_score,
-        noisy_threshold=settings.noisy_threshold,
+        # Le seuil du PROJET, comme le classifieur : la timeline doit expliquer
+        # les scores qui viennent d'être calculés.
+        noisy_threshold=seuil,
         # Le groupe du classifieur EN SERVICE : la timeline doit expliquer les
         # scores qui viennent d'être calculés, pas ceux d'un autre groupe.
         noisy_classes=list(clf.classes_cibles),

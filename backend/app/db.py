@@ -233,6 +233,65 @@ MIGRATIONS: dict[int, str] = {
         CONSTRAINT projet_config_ligne_unique CHECK (id = 1)
     );
     """,
+    # 9 — Plusieurs projets, et chaque événement appartient à un seul.
+    #
+    #     La migration 8 avait fait le choix inverse : une table à LIGNE UNIQUE,
+    #     avec un `CHECK (id = 1)`. C'était juste pour « rendre la cible
+    #     réglable », mais ça interdit une bibliothèque de projets — et surtout,
+    #     sans `events.projet_id`, basculer sur un projet « tronçonneuse »
+    #     afficherait les aboiements.
+    #
+    #     ⚠️ Le REMPLISSAGE des colonnes ne se fait PAS ici. Une migration est
+    #     sans paramètre ($n interdit, voir plus haut) et ne connaît pas le
+    #     groupe de classes par défaut, qui vit en Python. Il se fait au
+    #     démarrage, dans `app/projet.py::garantir_projet`.
+    9: """
+    CREATE TABLE IF NOT EXISTS projets (
+        id         SERIAL      PRIMARY KEY,
+        nom        TEXT        NOT NULL UNIQUE,
+        terme      TEXT,
+        classes    JSONB       NOT NULL,
+        -- NULL = pas encore calibré. `garantir_projet` le remplit depuis
+        -- NOISY_THRESHOLD. Un seuil faux ne se voit pas : il fait accepter ou
+        -- refuser tout, en silence.
+        seuil      REAL,
+        actif      BOOLEAN     NOT NULL DEFAULT FALSE,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+
+    -- UN SEUL projet actif à la fois : c'est ce que la capture surveille. Un
+    -- index partiel l'impose au moteur plutôt qu'à la discipline du code.
+    CREATE UNIQUE INDEX IF NOT EXISTS projets_un_seul_actif
+        ON projets (actif) WHERE actif;
+
+    DO $$
+    BEGIN
+        -- Reprend la ligne unique de la migration 8, si elle existe encore.
+        IF EXISTS (SELECT 1 FROM information_schema.tables
+                   WHERE table_schema = 'public' AND table_name = 'projet_config') THEN
+            INSERT INTO projets (nom, terme, classes, actif)
+            SELECT coalesce(nullif(nom, ''), 'aboiement'), terme, classes, TRUE
+              FROM projet_config
+             WHERE NOT EXISTS (SELECT 1 FROM projets)
+             LIMIT 1;
+            DROP TABLE projet_config;
+        END IF;
+    END $$;
+
+    ALTER TABLE events      ADD COLUMN IF NOT EXISTS projet_id INTEGER REFERENCES projets(id);
+    ALTER TABLE qc_snippets ADD COLUMN IF NOT EXISTS projet_id INTEGER REFERENCES projets(id);
+
+    -- qc_snippets.event_id était en INTEGER quand events.id est en BIGSERIAL :
+    -- la clé étrangère ne tient aujourd'hui que parce que les valeurs tiennent.
+    ALTER TABLE qc_snippets ALTER COLUMN event_id TYPE BIGINT;
+
+    -- `projet_id` EN TÊTE : toutes les requêtes filtrées par projet, donc un
+    -- index qui ne le porte pas en premier balaie la table entière.
+    CREATE INDEX IF NOT EXISTS events_projet_time_idx  ON events (projet_id, detected_at DESC);
+    CREATE INDEX IF NOT EXISTS events_projet_score_idx ON events (projet_id, noisy_score DESC);
+    CREATE INDEX IF NOT EXISTS qc_snippets_projet_idx  ON qc_snippets (projet_id);
+    """,
 }
 
 

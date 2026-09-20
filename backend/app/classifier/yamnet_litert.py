@@ -37,7 +37,7 @@ TOP_K = 5
 # Le groupe surveillé : les classes YAMNet dont le MAX fait le score principal.
 #
 # ⚠️ CE N'EST QU'UNE GRAINE, PAS UNE EXIGENCE. Le groupe réellement surveillé
-# vient du PROJET, en base (table `projet_config`, voir app/projet.py) : cette
+# vient du PROJET, en base (table `projets`, voir app/projet.py) : cette
 # constante ne sert qu'à une installation qui n'a encore rien configuré, et
 # c'est ce que la modale projet remplacera. Aucune classe canine n'est requise
 # pour démarrer — seul compte que le groupe configuré résolve au moins une

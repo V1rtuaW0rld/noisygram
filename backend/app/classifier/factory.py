@@ -13,20 +13,26 @@ log = logging.getLogger(__name__)
 
 
 def build_classifier(
-    settings: Settings, classes_cibles: list[str] | None = None
+    settings: Settings,
+    classes_cibles: list[str] | None = None,
+    seuil: float | None = None,
 ) -> ClassifierBackend:
-    """Construit le backend. `classes_cibles` vient du projet (voir app/projet.py).
+    """Construit le backend, depuis le PROJET (voir app/projet.py).
 
-    `None` laisse le backend appliquer son propre défaut — c'est ce qui arrive
-    tant qu'aucun projet n'a été enregistré.
+    `classes_cibles` et `seuil` viennent de la ligne du projet. `None` laisse le
+    backend appliquer ses propres défauts — c'est ce qui arrive tant qu'aucun
+    projet n'a été enregistré, et pour les outils qui n'ont pas de base.
     """
     backend = settings.classifier_backend.strip().lower()
+    # Le seuil appartient au projet : celui de `.env` n'est qu'une graine. Un
+    # seuil faux ne se voit pas — il fait accepter ou refuser tout, en silence.
+    seuil_effectif = seuil if seuil is not None else settings.noisy_threshold
 
     if backend in ("yamnet_litert", "yamnet-litert", "yamnet"):
         return YamnetLitertBackend(
             model_path=settings.model_path,
             class_map_path=settings.class_map_path,
-            threshold=settings.noisy_threshold,
+            threshold=seuil_effectif,
             peak_normalize=settings.peak_normalize,
             classes_cibles=classes_cibles,
         )
@@ -38,7 +44,7 @@ def build_classifier(
             )
         return RemoteHttpBackend(
             url=settings.remote_classifier_url,
-            threshold=settings.noisy_threshold,
+            threshold=seuil_effectif,
             timeout_s=settings.remote_classifier_timeout_s,
             classes_cibles=classes_cibles,
         )
