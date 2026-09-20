@@ -1,11 +1,14 @@
 # Noisygram — Document de conception et de reprise
 
-> **Date** : 18 septembre 2026
+> **Date** : 18 septembre 2026 — **dernière mise à jour le 20 septembre 2026**.
 > **État** : **implémenté, déployé, et utilisé sur le terrain.** Les huit étapes du §11
 > sont faites, plus l'écoute directe (§6.1-6.3) et le panneau d'analyse (§18).
 > ⚠️ **Le §17 liste ce que l'implémentation a corrigé dans ce document.** Plusieurs
 > affirmations de la conception se sont révélées fausses à la mesure — les lire avant de
 > s'appuyer sur les sections concernées.
+>
+> 📌 **Pour reprendre après un arrêt, lire le §22 d'abord** : bilan, ce que l'application
+> apprend et n'apprend pas, et les quatre chantiers ouverts par ordre de priorité.
 
 > **Bascule du 19 septembre 2026.** Le projet s'appelait Aboigramme et visait un seul
 > type de source sonore. Il qualifie en réalité du bruit quel qu'il soit : le nom, le
@@ -1897,3 +1900,110 @@ valent 0,25 aujourd'hui, donc l'écart est invisible ; il cesserait de l'être �
 calibration. La doctrine « le seuil appartient au projet » (`projet.py`, §5.4) n'est vraie
 qu'à l'affichage. **Non corrigé ici** : c'est la ligne qui décide de ce qui est compté, et
 elle se change sur décision, pas au détour d'une fonctionnalité.
+
+---
+
+## 22. Bilan et arrêt des développements (20/09/2026)
+
+Décision de l'utilisateur : **on arrête là les développements**. L'application tourne seule
+et fait ce qu'on lui demande. Ce paragraphe est là pour que la reprise — dans une semaine ou
+dans six mois — commence par ce qui est su, et pas par une re-découverte.
+
+### 22.1 Où en est l'application, dit par celui qui l'utilise
+
+| | |
+|---|---|
+| Fonctionne seule | **~90 %** |
+| Aboiements manqués | **aucun**, de son observation |
+| Faux positifs | **occasionnels** |
+
+Le déséquilibre est cohérent avec la conception, et pas accidentel : le §5.4 a choisi le
+**max sur le groupe** précisément parce que `Bark` seul ratait de vrais événements (§17.2).
+Un critère généreux attrape tout et laisse passer du bruit — c'est le compromis choisi, pas
+un défaut à corriger à l'aveugle.
+
+### 22.2 La décision se prend en DEUX étages
+
+C'est le point à retenir avant de toucher à quoi que ce soit : deux filtres se succèdent, et
+ils ne se règlent pas au même endroit.
+
+| Étage | Où | Ce qu'il compare |
+|---|---|---|
+| 1. YAMNet | `ws/session.py:592` | max du groupe surveillé ≥ **0,25** |
+| 2. QC | `ws/session.py:1112-1135` | % de ressemblance à l'**empreinte de référence** ≥ seuil **qui dépend de la durée** |
+
+Observé en vrai le 20/09, journal de capture :
+
+```
+Épisode seq=2172 validé par QC : score=84.7% >= seuil=43.0% (durée=2462ms)
+Épisode seq=2183 validé par QC : score=78.3% >= seuil=47.0% (durée=3475ms)
+Épisode seq=2238 validé par QC : score=85.3% >= seuil=70.0% (durée=7338ms)
+```
+
+Le seuil exigé **monte avec la durée** (43 % à 2,5 s, 70 % à 7,3 s) : une longue capture a
+plus d'occasions de ressembler à quelque chose, elle est donc jugée plus sévèrement. C'est
+voulu, et ça se règle dans `qc_config.duration_thresholds`.
+
+### 22.3 Ce que l'application apprend, et ce qu'elle n'apprend pas
+
+Question posée par l'utilisateur, et la réponse tient en une phrase : **rien n'apprend tout
+seul. Il n'y a aucun réentraînement dans ce dépôt** — le modèle est un `.tflite` figé,
+téléchargé au build, et aucun code ne le modifie.
+
+Mais tout n'est pas figé pour autant, et c'est la distinction qui compte :
+
+| Le geste | Ce qu'il change |
+|---|---|
+| **Ajouter une référence** (`qc_snippets`, la modale QC, le bouton « + Réf ») | **Oui.** L'empreinte du 2ᵉ étage est la moyenne vectorielle de ces extraits (`get_active_reference_wav_paths`). En ajouter change ce que le QC accepte — **après reconstruction de l'empreinte** |
+| **Exclure un événement** (`qc_valid = FALSE`) | **Non.** Rien ne relit ces drapeaux. Aucun seuil n'est recalculé, aucune empreinte n'est reconstruite |
+
+L'exclusion est donc **du corpus, pas un signal d'apprentissage**. Les 195 événements exclus
+sont là pour qu'il les analyse lui-même — c'est ce que la mémoire du projet appelle « le
+corpus voulu ». Croire qu'exclure suffisamment améliorera la détection ferait perdre des
+semaines : c'est le seul levier qui ne fait rien.
+
+**Combien d'échantillons faudrait-il ?** Personne ne le sait, et ce document ne peut pas
+répondre : ça dépend de la **variété** des faux positifs, pas de leur nombre. Le seul levier
+qui existe aujourd'hui est d'enrichir l'empreinte par des références, et il rend le résultat
+observable. État du catalogue au 20/09 : **18 extraits, issus de 8 WAV**.
+
+### 22.4 Et donc, pour réduire les faux positifs — le piège
+
+Le réflexe naturel est de **monter le seuil du projet**. Aujourd'hui, **ça ne marche pas** :
+§21.7, la ligne qui accepte ou refuse lit `settings.noisy_threshold`, la valeur globale de
+`.env`, pas le seuil du projet. Tant que ce n'est pas corrigé, le seul levier réellement
+actif est **le deuxième étage** — enrichir l'empreinte de référence.
+
+Les deux ne jouent pas sur la même chose : le 1ᵉʳ étage trie sur *ce que YAMNet reconnaît*,
+le 2ᵉ sur *à quel point ça ressemble à ce qu'on a déjà gardé*. Un faux positif qui réveille
+le klaxon est un problème d'empreinte ; un faux positif qui ne ressemble à rien est un
+problème de seuil. **C'est cette distinction qui dira quel levier tirer.**
+
+### 22.5 Ce qui n'a pas pu être établi
+
+Honnêtement, pour ne pas laisser croire à une vérification qui n'a pas eu lieu :
+
+Les épisodes **rejetés par le QC** sont enregistrés avec `backend = 'refused/silence'` et
+`qc_valid` **NULL**, alors que le chemin de code les a marqués `False` avant écriture. Le
+compte des rejets réels n'est donc pas lisible dans `qc_valid` seul — et les 772 événements
+« jamais jugés » du 20/09 sont en grande partie ces rejets, pas des épisodes non jugés. Je
+n'ai pas tranché entre « un second chemin d'écriture qui ne transporte pas la valeur » et
+« une valeur écrasée à l'insertion » : il faudra suivre la ligne avant de compter quoi que
+ce soit là-dessus.
+
+### 22.6 Ce qui reste ouvert, dans l'ordre où je le traiterais
+
+1. **Le seuil du projet ne décide pas** (§21.7) — le seul défaut qui rende menteur un réglage
+   de l'interface, et il bloque le levier le plus simple.
+2. **L'empreinte de référence** — le seul levier qui agit aujourd'hui, et il n'est pas
+   reconstruit automatiquement : ajouter une référence ne suffit pas.
+3. **Le comptage des rejets** (§22.5) — nécessaire pour mesurer quoi que ce soit.
+4. Le fond sonore calme du terrain, toujours pas mesuré.
+
+### 22.7 État du dépôt à l'arrêt
+
+`main` poussé, 101 + 54 vérifications vertes. Les quatre services tournent (`admin`,
+`capture`, `db`, `qc`), tous *healthy*. Projet actif : **Aboiements**.
+
+**Rien de tout ce qui précède n'a été vu dans un navigateur par mes soins** — les §§19 à 21
+sont vérifiés sur les fichiers servis, sur les journaux et sur la base, jamais à l'écran.
