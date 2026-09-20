@@ -750,3 +750,145 @@ dialog#modal-qc::backdrop {
   font-weight: 600;
 }
 
+/* -------------------------------------------------------- modale projet
+   ⚠️ Ce fichier n'a ni `--surface-2`, ni `--warn`, ni `--radius` : on
+   n'emploie que les variables qui existent ici. Une variable absente rend la
+   déclaration invalide et retombe sur transparent — sans erreur nulle part. */
+
+dialog#projet {
+  width: min(680px, 94vw);
+}
+
+.projet-corps {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+  overflow-y: auto;
+  max-height: 62vh;
+}
+
+.projet-carte {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: var(--surface);
+}
+
+/* Le projet surveillé se distingue par une BORDURE et un badge TEXTE, pas
+   seulement par une teinte : la couleur seule ne suffit pas à signaler. */
+.projet-carte--actif {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
+}
+
+.projet-tete {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.projet-badge {
+  font-size: 11px;
+  padding: 1px 8px;
+  border-radius: 8px;
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.projet-carte .card-sub {
+  margin: 4px 0 0;
+}
+
+.projet-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+
+.projet-actions button,
+dialog#projet .modale-pied button {
+  font: inherit;
+  padding: 4px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--ink-2);
+  cursor: pointer;
+}
+
+.projet-actions button:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.projet-champ {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.projet-champ input {
+  font: inherit;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--ink);
+}
+
+.projet-classes {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 30vh;
+  overflow-y: auto;
+  border-top: 1px solid var(--border);
+  padding-top: 6px;
+}
+
+.projet-classe {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 4px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.projet-classe:hover {
+  background: var(--plane);
+}
+
+.projet-classe input {
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+/* Le message de pied dit l'état en toutes lettres ; la couleur le souligne. */
+#projet-note.ok {
+  color: var(--accent);
+}
+
+#projet-note.avert {
+  color: var(--danger);
+  font-weight: 600;
+}
+
+dialog#projet .modale-pied {
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+dialog#projet .modale-pied button.btn-primary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--surface);
+  font-weight: 600;
+}
+

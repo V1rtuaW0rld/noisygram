@@ -515,8 +515,34 @@ function periodeFichier() {
 
 // ---------------------------------------------------------------- données
 
-async function api(chemin) {
-  const r = await fetch(chemin, { headers: { Accept: 'application/json' } });
+// -------------------------------------------------------- projet consulté
+//
+// ⚠️ VOIR n'est pas SURVEILLER. Le projet consulté voyage en paramètre de
+// requête : le serveur filtre dessus, et rien ne change à ce que la capture
+// surveille. L'activer, lui, demande un redémarrage.
+let projetVue = (() => {
+  try {
+    const v = window.localStorage.getItem('noisygram.projetVue');
+    return v ? Number(v) : null;
+  } catch (e) { return null; }
+})();
+
+function memoriseProjetVue(id) {
+  projetVue = id;
+  try {
+    if (id === null) window.localStorage.removeItem('noisygram.projetVue');
+    else window.localStorage.setItem('noisygram.projetVue', String(id));
+  } catch (e) { /* mode privé : on continue sans persister */ }
+}
+
+function avecProjet(chemin) {
+  if (projetVue === null) return chemin;
+  return chemin + (chemin.indexOf('?') === -1 ? '?' : '&') + 'projet=' + encodeURIComponent(projetVue);
+}
+
+async function api(chemin, options) {
+  const r = await fetch(avecProjet(chemin),
+    Object.assign({ headers: { Accept: 'application/json' } }, options || {}));
   if (!r.ok) throw new Error(chemin + ' → HTTP ' + r.status);
   return r.json();
 }
@@ -1541,6 +1567,247 @@ async function interroge() {
     }
   }
 
+  // ------------------------------------------------------------- Projet
+  //
+  // Les champs du formulaire sont créés par ce code, donc absents du HTML : on
+  // garde leurs RÉFÉRENCES plutôt que de les chercher par identifiant, ce que
+  // le test de câblage interdit — et il a raison.
+  const refsNouveau = { nom: null, terme: null, classes: null, creer: null };
+
+  function noteProjet(texte, genre) {
+    const n = $('projet-note');
+    if (!n) return;
+    n.textContent = texte || '';
+    n.hidden = !texte;
+    n.classList.toggle('avert', genre === 'avert');
+    n.classList.toggle('ok', genre === 'ok');
+  }
+
+  function carteProjet(projet, actif) {
+    const carte = document.createElement('div');
+    carte.className = 'projet-carte' + (actif ? ' projet-carte--actif' : '');
+
+    const tete = document.createElement('div');
+    tete.className = 'projet-tete';
+    const nom = document.createElement('strong');
+    nom.textContent = (actif ? '● ' : '○ ') + (projet.nom || '(sans nom)');
+    tete.appendChild(nom);
+    if (actif) {
+      const badge = document.createElement('span');
+      badge.className = 'projet-badge';
+      badge.textContent = 'surveillé par la capture';
+      tete.appendChild(badge);
+    }
+    carte.appendChild(tete);
+
+    const details = document.createElement('p');
+    details.className = 'card-sub';
+    details.textContent =
+      (projet.terme ? 'terme « ' + projet.terme + ' » — ' : '') +
+      'seuil ' + (projet.seuil == null ? 'non calibré' : projet.seuil.toFixed(2)) +
+      ' — ' + projet.classes.length + ' classe(s) : ' + projet.classes.join(', ');
+    carte.appendChild(details);
+
+    if (!actif) {
+      const actions = document.createElement('div');
+      actions.className = 'projet-actions';
+      const voir = document.createElement('button');
+      voir.type = 'button';
+      voir.textContent = 'Voir';
+      voir.title = 'Afficher ce projet sans rien interrompre';
+      voir.addEventListener('click', () => voirProjet(projet));
+      actions.appendChild(voir);
+      const surveiller = document.createElement('button');
+      surveiller.type = 'button';
+      surveiller.className = 'btn-primary';
+      surveiller.textContent = 'Surveiller ce projet';
+      surveiller.addEventListener('click', () => activeProjet(projet));
+      actions.appendChild(surveiller);
+      carte.appendChild(actions);
+    }
+    return carte;
+  }
+
+  async function rendProjet() {
+    const corps = $('projet-corps');
+    if (!corps) return;
+    corps.textContent = 'Chargement…';
+    let data;
+    try { data = await api('/api/projets'); }
+    catch (err) { corps.textContent = 'Projets illisibles : ' + err.message; return; }
+    corps.textContent = '';
+
+    const enTete = document.createElement('p');
+    enTete.className = 'card-sub';
+    enTete.textContent = 'La capture ne surveille qu\'un projet à la fois. '
+      + 'Consulter est instantané ; surveiller demande un redémarrage de la capture.';
+    corps.appendChild(enTete);
+    for (const p of data.projets) corps.appendChild(carteProjet(p, p.actif));
+
+    const bouton = $('projet-courant');
+    if (bouton) bouton.textContent = data.actif ? data.actif.nom : 'aucun';
+  }
+
+  function rendNouveau() {
+    const corps = $('projet-corps');
+    corps.textContent = '';
+
+    const aide = document.createElement('p');
+    aide.className = 'card-sub';
+    aide.textContent = 'Il est conseillé de nommer en anglais, et de fournir un '
+      + 'court extrait du son cherché. Un projet sans nom ni référence fonctionne '
+      + 'aussi : le best-of se remplira ensuite par « + Réf ».';
+    corps.appendChild(aide);
+
+    const mk = (label, ph, cle) => {
+      const lab = document.createElement('label');
+      lab.className = 'projet-champ';
+      lab.textContent = label;
+      const inp = document.createElement('input');
+      inp.type = 'text';
+      inp.placeholder = ph;
+      lab.appendChild(inp);
+      corps.appendChild(lab);
+      refsNouveau[cle] = inp;
+    };
+    mk('Nom du projet ', 'aboiement, chainsaw, ronflements…', 'nom');
+    mk('Ce qu\'on cherche à compter ', 'aboiement, tronçonneuse, miaou…', 'terme');
+
+    const chercher = document.createElement('button');
+    chercher.type = 'button';
+    chercher.textContent = 'Proposer les classes';
+    chercher.addEventListener('click', () => proposeClasses(refsNouveau.terme.value));
+    corps.appendChild(chercher);
+
+    const zone = document.createElement('div');
+    zone.className = 'projet-classes-zone';
+    corps.appendChild(zone);
+    refsNouveau.classes = zone;
+
+    const creer = document.createElement('button');
+    creer.type = 'button';
+    creer.className = 'btn-primary';
+    creer.textContent = 'Créer le projet';
+    creer.addEventListener('click', () => creeProjet(refsNouveau.nom.value));
+    corps.appendChild(creer);
+    refsNouveau.creer = creer;
+
+    $('projet-nouveau').hidden = true;
+    $('projet-retour').hidden = false;
+  }
+
+  async function proposeClasses(terme) {
+    const zone = refsNouveau.classes;
+    if (!zone) return;
+    if (!terme.trim()) { zone.textContent = ''; return; }
+    zone.textContent = 'Recherche…';
+    let data;
+    try { data = await api('/api/projets/proposer?terme=' + encodeURIComponent(terme)); }
+    catch (err) { zone.textContent = 'Recherche impossible : ' + err.message; return; }
+    zone.textContent = '';
+
+    if (!data.propositions || !data.propositions.length) {
+      const p = document.createElement('p');
+      p.className = 'card-sub avert';
+      p.textContent = 'Aucune classe connue pour ce terme. Tu peux créer le projet '
+        + 'sans, ou essayer un autre mot (le vocabulaire du modèle est en anglais).';
+      zone.appendChild(p);
+      return;
+    }
+    const p = document.createElement('p');
+    p.className = 'card-sub';
+    p.textContent = 'Décoche les classes qui ne conviennent pas :';
+    zone.appendChild(p);
+
+    const liste = document.createElement('div');
+    liste.className = 'projet-classes';
+    for (const c of data.classes) {
+      const lab = document.createElement('label');
+      lab.className = 'projet-classe';
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.value = c;
+      cb.checked = true;
+      cb.dataset.classe = '1';
+      const s = document.createElement('span');
+      s.textContent = c;
+      lab.appendChild(cb);
+      lab.appendChild(s);
+      liste.appendChild(lab);
+    }
+    zone.appendChild(liste);
+  }
+
+  async function creeProjet(nom) {
+    const zone = refsNouveau.classes;
+    const cases = zone ? [...zone.querySelectorAll('input[data-classe]')] : [];
+    const classes = cases.filter((c) => c.checked).map((c) => c.value);
+    if (!classes.length) {
+      noteProjet('Un projet sans aucune classe ne surveillerait rien : propose '
+        + 'd\'abord des classes.', 'avert');
+      return;
+    }
+    const terme = refsNouveau.terme ? refsNouveau.terme.value.trim() : '';
+    if (refsNouveau.creer) refsNouveau.creer.disabled = true;
+    try {
+      const r = await api('/api/projets', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ nom: nom.trim() || null, terme: terme || null, classes }),
+      });
+      noteProjet('Projet « ' + r.projet.nom + ' » créé, INACTIF. ' + r.conseil, 'ok');
+      $('projet-nouveau').hidden = false;
+      $('projet-retour').hidden = true;
+      await rendProjet();
+    } catch (err) {
+      noteProjet('Création refusée : ' + err.message, 'avert');
+    } finally {
+      if (refsNouveau.creer) refsNouveau.creer.disabled = false;
+    }
+  }
+
+  function voirProjet(projet) {
+    memoriseProjetVue(projet.id);
+    $('projet').close();
+    rafraichis();
+  }
+
+  async function activeProjet(projet) {
+    if (!confirm('Faire surveiller « ' + projet.nom + ' » par la capture ?\n\n'
+      + 'La capture devra être REDÉMARRÉE pour en tenir compte '
+      + '(docker compose restart capture).')) return;
+    try {
+      const r = await api('/api/projets/' + projet.id + '/activer', { method: 'POST' });
+      noteProjet(r.message, 'ok');
+      await rendProjet();
+    } catch (err) {
+      noteProjet('Activation refusée : ' + err.message, 'avert');
+    }
+  }
+
+  function initProjet() {
+    const d = $('projet');
+    const btn = $('btn-projet');
+    if (!d || !btn) return;
+    btn.addEventListener('click', async () => {
+      noteProjet('');
+      $('projet-nouveau').hidden = false;
+      $('projet-retour').hidden = true;
+      await rendProjet();
+      d.showModal();
+    });
+    $('projet-fermer').addEventListener('click', () => d.close());
+    $('projet-retour').addEventListener('click', () => {
+      $('projet-nouveau').hidden = false;
+      $('projet-retour').hidden = true;
+      noteProjet('');
+      rendProjet();
+    });
+    $('projet-nouveau').addEventListener('click', () => { noteProjet(''); rendNouveau(); });
+    d.addEventListener('click', (e) => { if (e.target === d) d.close(); });
+  }
+
+  initProjet();
   initQC();
 
   // Les exports CSV, un par graphique. Le registre est relu à chaque clic :

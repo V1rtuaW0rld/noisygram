@@ -14,7 +14,7 @@
     } catch (e) {}
   })();
 </script>
-<link rel="stylesheet" href="style.css?v=22">
+<link rel="stylesheet" href="style.css?v=23">
 </head>
 <body>
 
@@ -29,6 +29,7 @@
     <a href="https://noisy.virtuaworld.org/dashboard/" class="nav-item">📊 Dashboard</a>
     <span class="nav-item active" aria-current="page">🎧 ECOUTER</span>
     <button type="button" id="btn-qc" class="nav-item btn-qc" style="background:none;border:none;cursor:pointer;font:inherit;">🎯 Quality Center</button>
+    <button type="button" id="btn-projet" class="nav-item" style="background:none;border:none;cursor:pointer;font:inherit;">📁 <span id="projet-courant">Projet</span></button>
   </nav>
   <div class="header-right">
     <span class="direct" id="lien" data-etat="attente" role="status" aria-live="polite">
@@ -481,7 +482,31 @@
   <p id="footer-info">—</p>
 </footer>
 
-<script src="listen.js?v=26"></script>
+<!-- Modale Projet. Un `<dialog>` natif, comme la modale d'analyse et le
+     Quality Center : Échap, piège de focus et inertie de l'arrière-plan sans
+     une ligne de JavaScript.
+
+     ⚠️ VOIR et SURVEILLER sont deux gestes distincts, et la modale les
+     sépare : consulter un projet bascule la vue instantanément, l'activer
+     change ce que la CAPTURE surveille et exige un redémarrage (l'Interpreter
+     LiteRT n'est pas thread-safe). Les confondre ferait interrompre une
+     campagne en cours pour consulter une ancienne. -->
+<dialog id="projet" aria-labelledby="projet-titre">
+  <div class="modale-boite">
+    <header class="modale-tete">
+      <h2 id="projet-titre">📁 Projets</h2>
+      <button type="button" id="projet-fermer" class="modale-croix" aria-label="Fermer">&times;</button>
+    </header>
+    <div class="projet-corps" id="projet-corps"></div>
+    <footer class="modale-pied">
+      <p class="card-sub" id="projet-note" hidden></p>
+      <button type="button" id="projet-nouveau">Nouveau projet</button>
+      <button type="button" id="projet-retour" hidden>Retour</button>
+    </footer>
+  </div>
+</dialog>
+
+<script src="listen.js?v=27"></script>
 <script src="timeline.js?v=23"></script>
 </body>
 </html>
