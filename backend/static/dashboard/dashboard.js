@@ -1611,17 +1611,29 @@ async function interroge() {
     const actions = document.createElement('div');
     actions.className = 'projet-actions';
 
+    // ⚠️ « Voir » est sur TOUTES les cartes, y compris celle qui est surveillée.
+    // Sans ça, revenir au projet en cours après en avoir consulté un autre
+    // demandait de le RÉACTIVER — donc un redémarrage de capture pour un simple
+    // changement de vue. C'est le seul chemin de retour, il doit toujours exister.
+    const estVu = (projetVue == null && actif) || projetVue === projet.id;
+    const voir = document.createElement('button');
+    voir.type = 'button';
+    voir.textContent = estVu ? 'Affiché' : 'Voir';
+    voir.disabled = estVu;
+    voir.title = estVu
+      ? 'C\'est le projet que tu regardes en ce moment'
+      : 'Afficher ce projet sans rien interrompre';
+    voir.addEventListener('click', () => voirProjet(projet));
+    actions.appendChild(voir);
+
+    // « Surveiller » n'apparaît QUE sur les autres : le proposer sur le projet
+    // déjà surveillé inviterait à redémarrer la capture pour rien.
     if (!actif) {
-      const voir = document.createElement('button');
-      voir.type = 'button';
-      voir.textContent = 'Voir';
-      voir.title = 'Afficher ce projet sans rien interrompre';
-      voir.addEventListener('click', () => voirProjet(projet));
-      actions.appendChild(voir);
       const surveiller = document.createElement('button');
       surveiller.type = 'button';
       surveiller.className = 'btn-primary';
       surveiller.textContent = 'Surveiller ce projet';
+      surveiller.title = 'La capture le surveillera après redémarrage';
       surveiller.addEventListener('click', () => activeProjet(projet));
       actions.appendChild(surveiller);
     }

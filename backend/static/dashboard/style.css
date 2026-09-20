@@ -905,6 +905,16 @@ dialog#projet .modale-pied button {
   color: var(--danger);
 }
 
+/* Le bouton « Affiché » : désactivé, mais DÉLIBÉRÉMENT — c'est un état, pas un
+   bouton cassé. Le trait passe en pointillés pour que ça se lise. */
+.projet-actions button:disabled {
+  opacity: 0.7;
+  cursor: default;
+  border-style: dashed;
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
 /* La traduction française, à droite du nom du modèle. Discrète mais lisible :
    on ne peut pas demander de décocher ce qu'on ne comprend pas. */
 .projet-classe-fr {
