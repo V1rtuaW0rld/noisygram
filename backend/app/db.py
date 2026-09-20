@@ -292,6 +292,42 @@ MIGRATIONS: dict[int, str] = {
     CREATE INDEX IF NOT EXISTS events_projet_score_idx ON events (projet_id, noisy_score DESC);
     CREATE INDEX IF NOT EXISTS qc_snippets_projet_idx  ON qc_snippets (projet_id);
     """,
+    # 10 — Row-Level Security : le moteur refuse de rendre les lignes d'un autre
+    #      projet.
+    #
+    #      L'utilisateur voulait « une bdd bien distincte entre chaque projet ».
+    #      Une base ou un schéma par projet serait trop lourd ici — le dashboard
+    #      devrait se connecter à plusieurs bases en même temps pour permettre la
+    #      bascule de vue. RLS donne la MÊME garantie sur une seule table : un
+    #      `WHERE` oublié ne renvoie pas les données du voisin, il renvoie ZÉRO
+    #      ligne. L'échec devient bruyant et sûr.
+    #
+    #      ⚠️ CETTE MIGRATION N'ACTIVE RIEN. L'application se connecte en tant que
+    #      PROPRIÉTAIRE des tables, et un propriétaire CONTOURNE les politiques
+    #      par défaut. Sans `FORCE ROW LEVEL SECURITY`, la politique existe mais
+    #      ne filtre pas — c'est ce qui permet de la poser sans rien casser, et
+    #      de la faire mordre seulement quand le code pose le contexte.
+    #
+    #      Le contexte se pose par `set_config('app.projet_id', …, true)`. S'il
+    #      est absent, `current_setting` rend NULL, la comparaison rend NULL, et
+    #      la ligne est invisible : **l'échec est fermé**, jamais ouvert.
+    #
+    #      Le `WITH CHECK` est indispensable : sans lui, la capture cesserait
+    #      d'enregistrer le jour où `FORCE` sera activé — et sans un bruit.
+    10: """
+    ALTER TABLE events      ENABLE ROW LEVEL SECURITY;
+    ALTER TABLE qc_snippets ENABLE ROW LEVEL SECURITY;
+
+    DROP POLICY IF EXISTS events_projet ON events;
+    CREATE POLICY events_projet ON events
+        USING      (projet_id = nullif(current_setting('app.projet_id', true), '')::int)
+        WITH CHECK (projet_id = nullif(current_setting('app.projet_id', true), '')::int);
+
+    DROP POLICY IF EXISTS qc_snippets_projet ON qc_snippets;
+    CREATE POLICY qc_snippets_projet ON qc_snippets
+        USING      (projet_id = nullif(current_setting('app.projet_id', true), '')::int)
+        WITH CHECK (projet_id = nullif(current_setting('app.projet_id', true), '')::int);
+    """,
 }
 
 
@@ -380,17 +416,55 @@ async def migrate() -> int:
     return courante
 
 
-async def fetch(sql: str, *args: Any) -> list[asyncpg.Record]:
-    return await pool().fetch(sql, *args)
+async def _projet_actif_id() -> int | None:
+    """L'identifiant du projet actif. `projets` ne porte pas de RLS, donc cette
+    lecture ne peut pas se mordre la queue."""
+    v = await pool().fetchval("SELECT id FROM projets WHERE actif LIMIT 1")
+    return int(v) if v is not None else None
 
 
-async def fetchrow(sql: str, *args: Any) -> Optional[asyncpg.Record]:
-    return await pool().fetchrow(sql, *args)
+async def _poser_contexte(conn: asyncpg.Connection, projet: int | str | None) -> None:
+    """Pose le projet courant pour la transaction, et pour elle seule.
+
+    ⚠️ `set_config(…, true)` est un `SET LOCAL` : le réglage meurt avec la
+    transaction, donc la connexion rendue au pool ne garde AUCUNE appartenance.
+    Un `SET` ordinaire ferait hériter la requête suivante du projet de la
+    précédente — le genre de fuite qu'on ne voit qu'une fois.
+
+    `projet=None` veut dire « le projet ACTIF », pas « aucun » : c'est le défaut
+    du dashboard, et c'est ce qui garde les appels existants corrects quand ils
+    ne précisent rien. S'il n'y a aucun projet actif, on pose NULL — la
+    politique compare alors à NULL, ce qui ne rend **aucune ligne**. L'échec est
+    fermé, jamais ouvert.
+    """
+    if projet is None:
+        projet = await _projet_actif_id()
+    await conn.execute(
+        "SELECT set_config('app.projet_id', $1, true)",
+        None if projet is None else str(projet),
+    )
 
 
-async def fetchval(sql: str, *args: Any) -> Any:
-    return await pool().fetchval(sql, *args)
+async def _sous_contexte(fn, sql: str, args: tuple, projet: int | str | None):
+    """Acquiert, ouvre une transaction, pose le contexte, exécute."""
+    async with pool().acquire() as conn:
+        async with conn.transaction():
+            await _poser_contexte(conn, projet)
+            return await fn(conn, sql, *args)
 
 
-async def execute(sql: str, *args: Any) -> str:
+async def fetch(sql: str, *args: Any, projet: int | str | None = None) -> list[asyncpg.Record]:
+    return await _sous_contexte(lambda c, q, *a: c.fetch(q, *a), sql, args, projet)
+
+
+async def fetchrow(sql: str, *args: Any, projet: int | str | None = None) -> Optional[asyncpg.Record]:
+    return await _sous_contexte(lambda c, q, *a: c.fetchrow(q, *a), sql, args, projet)
+
+
+async def fetchval(sql: str, *args: Any, projet: int | str | None = None) -> Any:
+    return await _sous_contexte(lambda c, q, *a: c.fetchval(q, *a), sql, args, projet)
+
+
+async def execute(sql: str, *args: Any, projet: int | str | None = None) -> str:
+    return await _sous_contexte(lambda c, q, *a: c.execute(q, *a), sql, args, projet)
     return await pool().execute(sql, *args)
