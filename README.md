@@ -1,4 +1,9 @@
 # Noisygram
+<img width="1909" height="926" alt="image" src="https://github.com/user-attachments/assets/7207b2c6-d36a-455f-a9d1-1362cb8a9c84" />
+
+<img width="1879" height="885" alt="image" src="https://github.com/user-attachments/assets/23a29959-4fab-4e87-aa35-c71f3e7a2c3e" />
+
+<img width="1321" height="782" alt="image" src="https://github.com/user-attachments/assets/413e5c49-e0e8-4193-ada3-924038c0f2ed" />
 
 Détection et historisation d'événements sonores. Un vieux PC Windows en extérieur capte
 le son ; ce service qualifie les extraits et alimente un dashboard.
