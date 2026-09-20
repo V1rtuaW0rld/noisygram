@@ -26,7 +26,16 @@ x-api: &api-base
     db: {condition: service_healthy}   # ← la garantie d'ordonnancement demandée
   restart: unless-stopped
   environment: &api-env
-    DATABASE_URL: postgresql://noisygram:${POSTGRES_PASSWORD:-noisygram_dev_pw}@db:5432/noisygram
+    # ⚠️ Rôle APPLICATIF, et non le rôle `noisygram`. C'est la condition SANS
+    # LAQUELLE la séparation par projet ne protège rien : `noisygram` est
+    # SUPERUTILISATEUR (l'image postgres crée POSTGRES_USER ainsi), et un
+    # superutilisateur contourne la Row-Level Security quoi qu'on fasse —
+    # `FORCE` ne s'applique qu'au propriétaire des tables, pas au-dessus.
+    # `noisygram_app` n'est ni superutilisateur ni BYPASSRLS, et possède les
+    # tables pour pouvoir faire tourner les migrations.
+    #
+    # Le rôle `noisygram` reste pour la maintenance : psql, pg_dump, restauration.
+    DATABASE_URL: postgresql://noisygram_app:${POSTGRES_PASSWORD:-noisygram_dev_pw}@db:5432/noisygram
     MEDIA_DIR: /data/media
     MODEL_PATH: /app/models/yamnet.tflite
     CLASS_MAP_PATH: /app/models/yamnet_class_map.csv
@@ -87,7 +96,13 @@ services:
       POSTGRES_DB: noisygram
       TZ: ${APP_TZ:-Europe/Paris}
       PGTZ: ${APP_TZ:-Europe/Paris}
-    volumes: [pgdata:/var/lib/postgresql/data]
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      # Création du rôle applicatif. Ne s'exécute QU'À la première
+      # initialisation du volume : sur une base existante, ce script est ignoré
+      # sans le dire. Voir le commentaire de DATABASE_URL plus haut, et
+      # docker/db/init/01-role-app.sh.
+      - ./docker/db/init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB} -h 127.0.0.1"]
       interval: 5s
