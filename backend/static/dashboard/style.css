@@ -891,6 +891,28 @@ dialog#projet .modale-pied button {
   color: var(--accent);
   background: color-mix(in srgb, var(--accent) 6%, transparent);
 }
+/* La poubelle : rouge, et ÉCARTÉE des autres boutons. Un bouton destructeur ne
+   doit pas ressembler à ses voisins — on ne clique pas dessus par erreur de
+   visée. Elle porte son infobulle, qui dit ce qu'elle emporte. */
+.btn-poubelle {
+  margin-left: auto;
+  border-color: color-mix(in srgb, var(--danger) 40%, transparent);
+  color: var(--danger);
+}
+
+.btn-poubelle:hover {
+  border-color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  color: var(--danger);
+}
+
+/* La traduction française, à droite du nom du modèle. Discrète mais lisible :
+   on ne peut pas demander de décocher ce qu'on ne comprend pas. */
+.projet-classe-fr {
+  color: var(--muted);
+  font-style: normal;
+  font-size: 12px;
+}
 
 /* Le message de pied dit l'état en toutes lettres ; la couleur le souligne. */
 #projet-note.ok {
@@ -914,43 +936,66 @@ dialog#projet .modale-pied button.btn-primary {
   font-weight: 600;
 }
 
-/* Le projet courant, en pastille DANS le titre. Cliquable — c'est ce qui ouvre
-   la modale — mais discret : il informe avant d'inviter.
-   Il vivait avant dans la barre de navigation, avec « Projet » comme texte de
-   départ : le libellé ne devenait le vrai nom qu'à l'ouverture de la modale,
-   donc la page changeait d'aspect après une simple visite. */
-.titre-projet {
+/* Ligne du titre : le bouton Projet, puis « Noisygram — <projet> ». */
+.titre-ligne {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+/* Libellé FIXE. Il ouvre la modale ; il ne porte pas le nom du projet — c'est
+   le titre à sa droite qui le dit. */
+.btn-projet {
   font: inherit;
   font-size: 13px;
   font-weight: 600;
-  margin-left: 8px;
-  padding: 2px 10px;
+  padding: 4px 12px;
   border: 1px solid var(--border);
   border-radius: 999px;
   background: var(--surface);
   color: var(--ink-2);
   cursor: pointer;
-  vertical-align: middle;
+  white-space: nowrap;
 }
 
-.titre-projet:hover,
-.titre-projet:focus-visible {
+.btn-projet:hover,
+.btn-projet:focus-visible {
   border-color: var(--accent);
   color: var(--accent);
 }
 
-/* Consulter un projet que la capture NE surveille PAS. Le texte le dit — «
-   (consultation) » est ajouté par le CSS — et la bordure passe en pointillés :
-   la couleur seule ne suffirait pas à signaler, et se tromper de projet ferait
-   lire un ancien relevé comme la campagne en cours. */
-.titre-projet--consulte {
-  border-style: dashed;
-  border-color: var(--warn);
+/* Le tiret sépare sans peser. */
+.titre-sep {
+  color: var(--muted);
+  font-weight: 400;
+}
+
+#projet-consulte {
+  font-weight: 600;
+}
+
+/* Consulter un projet que la capture NE surveille PAS : le titre le dit en
+   toutes lettres. Sans ça, on lirait un ancien relevé en croyant regarder la
+   campagne en cours — et « la nuit a été calme » serait faux. */
+#projet-consulte.consulte {
   color: var(--warn);
 }
 
-.titre-projet--consulte::after {
+#projet-consulte.consulte::after {
   content: ' (consultation)';
   font-weight: 400;
+  font-size: 13px;
+}
+
+/* Le projet SURVEILLÉ, à droite près du voyant. Distinct du consulté, et
+   affiché à part exprès : on veut le voir d'un coup d'œil, pas le déduire. */
+.surveille {
+  font-size: 12px;
+  color: var(--ink-2);
+  white-space: nowrap;
+  padding: 2px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
 }
 

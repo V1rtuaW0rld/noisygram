@@ -14,21 +14,27 @@
     } catch (e) {}
   })();
 </script>
-<link rel="stylesheet" href="style.css?v=25">
+<link rel="stylesheet" href="style.css?v=26">
 </head>
 <body>
 
 <header>
   <div class="header-left">
-    <h1>
-      <a href="https://noisy.virtuaworld.org/dashboard/" class="titre-lien">Noisygram</a>
-      <!-- Le projet courant vit DANS le titre, pas dans la barre de navigation.
-           Il y était en bouton séparé, avec « Projet » comme texte de départ :
-           le libellé ne devenait le vrai nom qu'à l'ouverture de la modale,
-           donc la page changeait d'aspect après une simple visite. -->
-      <button type="button" id="btn-projet" class="titre-projet"
-              title="Changer de projet">📁 <span id="projet-courant">…</span></button>
-    </h1>
+    <div class="titre-ligne">
+      <!-- Le bouton ouvre la modale. Son libellé est FIXE — « Projet » — et ne
+           porte pas le nom : c'est le titre à sa droite qui dit quel projet on
+           regarde. Un libellé qui changeait tout seul après une visite faisait
+           bouger la page sans raison. -->
+      <button type="button" id="btn-projet" class="btn-projet"
+              title="Changer, créer ou supprimer un projet">📁 Projet</button>
+      <h1>
+        <a href="https://noisy.virtuaworld.org/dashboard/" class="titre-lien">Noisygram</a>
+        <span class="titre-sep">—</span>
+        <!-- Le projet CONSULTÉ, et non celui que la capture surveille : c'est
+             lui qui décide de ce que montrent les tableaux et les graphiques. -->
+        <span id="projet-consulte">…</span>
+      </h1>
+    </div>
     <p class="sub" id="header-sub">Écouter en direct — ce que le poste extérieur entend, maintenant.</p>
   </div>
   <nav class="header-center">
@@ -39,6 +45,11 @@
     <button type="button" id="btn-qc" class="nav-item btn-qc" style="background:none;border:none;cursor:pointer;font:inherit;">🎯 Quality Center</button>
   </nav>
   <div class="header-right">
+    <!-- Le projet que la capture SURVEILLE. Distinct du projet consulté, et
+         affiché à part exprès : on peut relire d'anciens relevés sans que la
+         campagne en cours s'interrompe, et il faut pouvoir le voir d'un coup
+         d'œil au lieu de le déduire. -->
+    <span class="surveille" id="projet-surveille" title="Projet surveillé par la capture">…</span>
     <span class="direct" id="lien" data-etat="attente" role="status" aria-live="polite">
       <span class="direct-dot" aria-hidden="true"></span>
       <span id="lien-texte">déconnecté</span>
@@ -513,7 +524,7 @@
   </div>
 </dialog>
 
-<script src="listen.js?v=29"></script>
+<script src="listen.js?v=30"></script>
 <script src="timeline.js?v=23"></script>
 </body>
 </html>

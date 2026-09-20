@@ -50,6 +50,11 @@ class ProjetCree(BaseModel):
     seuil: float | None = None
 
 
+class ProjetRenomme(BaseModel):
+    nom: str
+    terme: str | None = None
+
+
 def _noms_du_modele() -> set[str]:
     """Les 521 classes que le modèle sait nommer.
 
@@ -79,9 +84,10 @@ async def proposer(terme: str) -> dict[str, Any]:
     return {
         "terme": terme,
         "propositions": propositions,
-        # Rendu tel quel pour que l'interface n'ait pas à connaître le
-        # dictionnaire : la meilleure proposition est prête à être proposée.
-        "classes": propositions[0]["classes"] if propositions else [],
+        # [{nom, fr}] — la forme que consomme la liste à cocher. Le nom du
+        # modèle reste en anglais : c'est ce que YAMNet comprend. Le français
+        # n'est qu'une porte d'entrée, affichée à côté.
+        "classes": dictionnaire.enrichir(propositions[0]["classes"]) if propositions else [],
     }
 
 
@@ -130,6 +136,10 @@ def _extrait_local(classifier, corps: bytes) -> dict[str, Any]:
         "classes": [
             {
                 "nom": noms[int(i)],
+                # Le français, quand on le connaît. Toutes les classes rendues
+                # par le modèle n'y sont pas : on affiche alors l'anglais plutôt
+                # que rien.
+                "fr": dictionnaire.libelle(noms[int(i)]),
                 "index": int(i),
                 "score": round(float(par_classe[int(i)]), 4),
             }
@@ -260,3 +270,34 @@ async def activer(projet_id: int) -> dict[str, Any]:
 async def defaut() -> dict[str, Any]:
     """Le groupe appliqué quand aucun projet n'est configuré."""
     return {"classes": list(NOISY_CLASS_NAMES)}
+
+
+@router.patch("/{projet_id}")
+async def renommer(projet_id: int, payload: ProjetRenomme) -> dict[str, Any]:
+    """Renomme un projet. Ni les classes, ni le seuil ne bougent."""
+    try:
+        r = await projet.renommer(projet_id, payload.nom, payload.terme)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    if r is None:
+        raise HTTPException(404, f"projet {projet_id} introuvable")
+    return {"projet": r}
+
+
+@router.delete("/{projet_id}")
+async def supprimer(projet_id: int) -> dict[str, Any]:
+    """Supprime un projet et ses événements.
+
+    Refuse le projet ACTIF et le dernier : dans les deux cas la capture se
+    retrouverait sans cible, et ne le dirait qu'au redémarrage suivant.
+    """
+    try:
+        emporte = await projet.supprimer(projet_id)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {
+        "supprime": emporte["nom"],
+        "n_evenements": emporte["n_evenements"],
+        "message": f"« {emporte['nom']} » supprimé, avec "
+        f"{emporte['n_evenements']} événement(s).",
+    }

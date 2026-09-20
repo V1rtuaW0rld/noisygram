@@ -202,6 +202,113 @@ FAMILLES: list[dict] = [
 ]
 
 
+# Français des classes citées ci-dessus. Sert à AFFICHER « Bird — Oiseau » dans
+# la liste à cocher : le nom du modèle reste en anglais, c'est ce que YAMNet
+# comprend, et le français n'est qu'une porte d'entrée.
+#
+# ⚠️ Toute classe citée dans FAMILLES doit avoir son entrée ici — `valider()`
+# le vérifie. Sans elle, la liste afficherait un mot anglais que l'utilisateur
+# n'a aucun moyen de comprendre.
+FR: dict[str, str] = {
+    # chien
+    "Dog": "Chien", "Bark": "Aboiement", "Yip": "Jappement", "Howl": "Hurlement",
+    "Bow-wow": "Wouf-wouf", "Growling": "Grognement", "Whimper (dog)": "Gémissement (chien)",
+    # chat
+    "Cat": "Chat", "Meow": "Miaulement", "Purr": "Ronronnement", "Hiss": "Feulement",
+    "Caterwaul": "Miaulement de dispute",
+    # oiseau
+    "Bird": "Oiseau", "Bird vocalization, bird call, bird song": "Chant d'oiseau",
+    "Chirp, tweet": "Gazouillis", "Squawk": "Cri d'oiseau", "Crow": "Corbeau",
+    "Owl": "Hibou", "Pigeon, dove": "Pigeon, colombe",
+    # outils
+    "Chainsaw": "Tronçonneuse", "Lawn mower": "Tondeuse",
+    "Hammer": "Marteau", "Jackhammer": "Marteau-piqueur",
+    "Drill": "Perceuse", "Power tool": "Outil électrique",
+    "Sawing": "Sciage", "Sanding": "Ponçage",
+    # ronflement
+    "Snoring": "Ronflement", "Snort": "Reniflement", "Wheeze": "Sifflement respiratoire",
+    "Breathing": "Respiration",
+    # véhicules
+    "Vehicle horn, car horn, honking": "Klaxon de voiture", "Honk": "Coup de klaxon",
+    "Air horn, truck horn": "Klaxon de camion", "Foghorn": "Corne de brume",
+    "Train horn": "Klaxon de train", "Train whistle": "Sifflet de train",
+    "Engine": "Moteur", "Heavy engine (low frequency)": "Moteur lourd (grave)",
+    "Medium engine (mid frequency)": "Moteur moyen (médium)",
+    "Light engine (high frequency)": "Moteur léger (aigu)",
+    "Idling": "Moteur au ralenti", "Motor vehicle (road)": "Véhicule à moteur",
+    "Truck": "Camion", "Motorcycle": "Moto", "Bus": "Autobus",
+    "Car passing by": "Voiture qui passe", "Aircraft engine": "Moteur d'avion",
+    "Jet engine": "Réacteur",
+    # maison
+    "Doorbell": "Sonnette", "Ding-dong": "Ding-dong", "Ding": "Ding",
+    "Buzzer": "Buzzer", "Telephone bell ringing": "Sonnerie de téléphone",
+    "Bicycle bell": "Sonnette de vélo", "Door": "Porte",
+    "Sliding door": "Porte coulissante", "Knock": "Coup frappé",
+    "Bell": "Cloche", "Church bell": "Cloche d'église", "Jingle bell": "Grelot",
+    "Tubular bells": "Cloches tubulaires",
+    "Vacuum cleaner": "Aspirateur", "Dishes, pots, and pans": "Vaisselle",
+    # alarmes
+    "Alarm": "Alarme", "Smoke detector, smoke alarm": "Détecteur de fumée",
+    "Fire alarm": "Alarme incendie", "Car alarm": "Alarme de voiture",
+    "Alarm clock": "Réveil", "Beep, bleep": "Bip",
+    "Siren": "Sirène", "Police car (siren)": "Sirène de police",
+    "Ambulance (siren)": "Sirène d'ambulance",
+    "Fire engine, fire truck (siren)": "Sirène de pompiers",
+    "Civil defense siren": "Sirène d'alerte", "Emergency vehicle": "Véhicule d'urgence",
+    "Reversing beeps": "Bips de recul",
+    # armes
+    "Gunshot, gunfire": "Coup de feu", "Explosion": "Explosion",
+    "Machine gun": "Mitrailleuse", "Cap gun": "Pistolet jouet",
+    "Fireworks": "Feu d'artifice", "Firecracker": "Pétard",
+    "Artillery fire": "Tir d'artillerie",
+    # verre
+    "Glass": "Verre", "Shatter": "Bris", "Smash, crash": "Fracas",
+    "Breaking": "Cassure",
+    # eau et nature
+    "Water": "Eau", "Water tap, faucet": "Robinet", "Stream": "Ruisseau",
+    "Rain": "Pluie", "Raindrop": "Goutte de pluie", "Rain on surface": "Pluie sur surface",
+    "Waterfall": "Cascade", "Wind": "Vent",
+    "Wind noise (microphone)": "Bruit de vent (micro)",
+    "Rustling leaves": "Feuilles froissées", "Rustle": "Froissement",
+    "Thunder": "Tonnerre", "Thunderstorm": "Orage",
+    # humain
+    "Speech": "Parole", "Conversation": "Conversation",
+    "Hubbub, speech noise, speech babble": "Brouhaha",
+    "Child speech, kid speaking": "Parole d'enfant", "Shout": "Cri",
+    "Whistling": "Sifflement", "Laughter": "Rire", "Belly laugh": "Fou rire",
+    "Baby laughter": "Rire de bébé", "Cough": "Toux", "Sneeze": "Éternuement",
+    "Walk, footsteps": "Bruits de pas",
+    # divers
+    "Train": "Train", "Railroad car, train wagon": "Wagon",
+    "Train wheels squealing": "Grincement de roues de train",
+    "Music": "Musique", "Singing": "Chant", "Musical instrument": "Instrument de musique",
+    # --- Hors familles, mais le modèle les rend très souvent sur un extrait.
+    # Sans elles, la liste afficherait « Animal » et « Silence » en anglais des
+    # deux côtés — précisément les lignes qu'on lit en premier.
+    "Animal": "Animal", "Domestic animals, pets": "Animaux domestiques",
+    "Livestock, farm animals, working animals": "Bétail, animaux de ferme",
+    "Wild animals": "Animaux sauvages", "Silence": "Silence",
+    "Vehicle": "Véhicule", "Speech synthesizer": "Voix de synthèse",
+    "Sound effect": "Effet sonore", "Noise": "Bruit",
+    "Inside, small room": "Intérieur, petite pièce",
+    "Inside, large room or hall": "Intérieur, grande salle",
+    "Outside, urban or manmade": "Extérieur, urbain",
+    "Outside, rural or natural": "Extérieur, rural",
+    "Goat": "Chèvre", "Pig": "Cochon", "Cow": "Vache", "Sheep": "Mouton",
+    "Horse": "Cheval", "Rooster": "Coq", "Chicken, poultry": "Poule, volaille",
+    "Insect": "Insecte", "Frog": "Grenouille", "Cricket": "Grillon",
+    "Water": "Eau", "Fire": "Feu", "Television": "Télévision",
+    "Radio": "Radio", "Telephone": "Téléphone", "Typing": "Frappe au clavier",
+    "Writing": "Écriture", "Rustling leaves": "Feuilles froissées",
+    "Walk, footsteps": "Bruits de pas", "Clapping": "Applaudissements",
+    "Screaming": "Cri perçant", "Children shouting": "Cris d'enfants",
+    "Baby cry, infant cry": "Pleurs de bébé", "Crying, sobbing": "Sanglots",
+    "Whistling": "Sifflement", "Sniff": "Reniflement",
+    "Thump, thud": "Bruit sourd", "Bang": "Détonation",
+    "Slam": "Claquement", "Crack": "Craquement", "Crackle": "Crépitement",
+}
+
+
 def _normalise(texte: str) -> str:
     """Minuscules, sans accents, espaces réduits.
 
@@ -267,3 +374,27 @@ def valider(noms_du_modele: Iterable[str]) -> list[str]:
     """
     connues = set(noms_du_modele)
     return sorted(c for c in toutes_les_classes() if c not in connues)
+
+
+def sans_traduction() -> list[str]:
+    """Les classes citées dont on n'a pas le français.
+
+    Même raison que `valider()` : une classe sans traduction s'afficherait en
+    anglais dans la liste à cocher, et l'utilisateur n'aurait aucun moyen de
+    savoir ce qu'il décoche.
+    """
+    return sorted(c for c in toutes_les_classes() if c not in FR)
+
+
+def libelle(classe: str) -> str:
+    """Le français d'une classe, ou la classe elle-même si on l'ignore.
+
+    Pour les classes rendues par le MODÈLE sur un extrait : elles ne sont pas
+    toutes dans FR, et il vaut mieux afficher l'anglais que rien du tout.
+    """
+    return FR.get(classe, classe)
+
+
+def enrichir(noms: Iterable[str]) -> list[dict]:
+    """[{nom, fr}] — la forme que consomme la liste à cocher."""
+    return [{"nom": n, "fr": libelle(n)} for n in noms]

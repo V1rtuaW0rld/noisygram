@@ -85,12 +85,29 @@ async def actif() -> dict | None:
 
 
 async def lister() -> list[dict]:
-    """Tous les projets, l'actif d'abord, puis par ancienneté."""
+    """Tous les projets, l'actif d'abord, puis par ancienneté.
+
+    `n_evenements` est joint parce que la modale doit pouvoir DIRE ce qu'une
+    suppression emporte. Un bouton poubelle qui ne dit pas ce qu'il détruit est
+    un piège, pas une fonctionnalité.
+    """
     rows = await db.fetch(
         "SELECT id, nom, terme, classes, seuil, actif "
         "FROM projets ORDER BY actif DESC, id ASC"
     )
-    return [_ligne(r) for r in rows]
+    projets = [_ligne(r) for r in rows]
+    for p in projets:
+        # `projet=p['id']` est INDISPENSABLE : la politique RLS ne rend que les
+        # événements du projet courant, et le contexte ne suit pas tout seul.
+        p["n_evenements"] = int(
+            await db.fetchval(
+                "SELECT count(*) FROM events WHERE projet_id = $1",
+                p["id"],
+                projet=p["id"],
+            )
+            or 0
+        )
+    return projets
 
 
 async def creer(
@@ -141,6 +158,68 @@ async def activer(projet_id: int) -> dict | None:
     if r:
         log.info("projet actif : %s", r["nom"])
     return _ligne(r) if r else None
+
+
+async def renommer(
+    projet_id: int, nom: str | None, terme: str | None = None
+) -> dict | None:
+    """Renomme un projet. Le NOM seul change : ni les classes, ni le seuil.
+
+    Renommer ne doit pas toucher à ce qui décide — c'est le groupe de classes
+    qui définit la cible, le nom n'est que pour l'humain.
+    """
+    nom_propre = (nom or "").strip()
+    if not nom_propre:
+        raise ValueError("un projet doit garder un nom")
+    r = await db.fetchrow(
+        "UPDATE projets SET nom = $1, terme = coalesce($2, terme), updated_at = now() "
+        "WHERE id = $3 RETURNING id, nom, terme, classes, seuil, actif",
+        nom_propre,
+        (terme or "").strip() or None,
+        projet_id,
+    )
+    return _ligne(r) if r else None
+
+
+async def supprimer(projet_id: int) -> dict:
+    """Supprime un projet ET ses événements. Rend ce qui a été emporté.
+
+    ⚠️ Deux refus délibérés, et ils ne sont pas de la timidité :
+
+    - **le projet ACTIF** : le supprimer laisserait la capture sans cible, et
+      elle refuserait de démarrer au prochain redémarrage — une panne qui
+      n'apparaîtrait que des heures plus tard ;
+    - **le dernier projet** : même conséquence, immédiate.
+
+    Les événements partent avec, en une seule transaction : un projet sans ses
+    données et des données sans leur projet seraient tous deux incohérents.
+    """
+    projets = await lister()
+    cible = next((p for p in projets if p["id"] == projet_id), None)
+    if cible is None:
+        raise ValueError(f"projet {projet_id} introuvable")
+    if cible["actif"]:
+        raise ValueError(
+            "ce projet est celui que la capture surveille : active un autre "
+            "projet avant de le supprimer"
+        )
+    if len(projets) <= 1:
+        raise ValueError("c'est le dernier projet : il n'y aurait plus rien à compter")
+
+    n = cible["n_evenements"]
+    async with db.pool().acquire() as conn:
+        async with conn.transaction():
+            # Le contexte, sinon la politique RLS ne laisserait pas voir les
+            # lignes à supprimer — et elles resteraient orphelines.
+            await conn.execute(
+                "SELECT set_config('app.projet_id', $1, true)", str(projet_id)
+            )
+            await conn.execute("DELETE FROM qc_snippets WHERE projet_id = $1", projet_id)
+            await conn.execute("DELETE FROM events WHERE projet_id = $1", projet_id)
+            await conn.execute("DELETE FROM projets WHERE id = $1", projet_id)
+
+    log.info("projet supprimé : « %s » et %d événement(s)", cible["nom"], n)
+    return {"nom": cible["nom"], "n_evenements": n}
 
 
 async def definir_seuil(projet_id: int, seuil: float) -> None:

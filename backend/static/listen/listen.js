@@ -1486,10 +1486,10 @@ function _carte(projet, actif) {
     ' — ' + projet.classes.length + ' classe(s) : ' + projet.classes.join(', ');
   carte.appendChild(details);
 
-  if (!actif) {
-    const actions = document.createElement('div');
-    actions.className = 'projet-actions';
+  const actions = document.createElement('div');
+  actions.className = 'projet-actions';
 
+  if (!actif) {
     const voir = document.createElement('button');
     voir.type = 'button';
     voir.textContent = 'Voir';
@@ -1504,10 +1504,64 @@ function _carte(projet, actif) {
     surveiller.title = 'La capture le surveillera après redémarrage';
     surveiller.addEventListener('click', () => activeProjet(projet));
     actions.appendChild(surveiller);
-
-    carte.appendChild(actions);
   }
+
+  const renommer = document.createElement('button');
+  renommer.type = 'button';
+  renommer.textContent = 'Renommer';
+  renommer.title = 'Changer le nom — ni les classes ni le seuil ne bougent';
+  renommer.addEventListener('click', () => renommeProjet(projet));
+  actions.appendChild(renommer);
+
+  // La poubelle dit ce qu'elle emporte dans son infobulle : un bouton
+  // destructeur qui ne dit pas ce qu'il détruit est un piège.
+  const poubelle = document.createElement('button');
+  poubelle.type = 'button';
+  poubelle.className = 'btn-poubelle';
+  poubelle.textContent = '🗑';
+  poubelle.setAttribute('aria-label', 'Supprimer le projet ' + projet.nom);
+  poubelle.title = projet.n_evenements
+    ? 'Supprimer « ' + projet.nom + ' » et ses ' + projet.n_evenements + ' événement(s)'
+    : 'Supprimer « ' + projet.nom + ' »';
+  poubelle.addEventListener('click', () => supprimeProjet(projet));
+  actions.appendChild(poubelle);
+
+  carte.appendChild(actions);
   return carte;
+}
+
+async function renommeProjet(projet) {
+  const nom = window.prompt('Nouveau nom du projet :', projet.nom);
+  if (nom === null) return;
+  if (!nom.trim()) { _projetNote('Le nom ne peut pas être vide.', 'avert'); return; }
+  try {
+    await api('/api/projets/' + projet.id, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ nom: nom.trim() }),
+    });
+    _projetNote('Projet renommé.', 'ok');
+    await rendProjet();
+  } catch (err) {
+    _projetNote('Renommage refusé : ' + err.message, 'avert');
+  }
+}
+
+async function supprimeProjet(projet) {
+  const quoi = projet.n_evenements
+    ? '« ' + projet.nom + ' »\nET ses ' + projet.n_evenements + ' événement(s)'
+    : '« ' + projet.nom + ' »';
+  if (!window.confirm('Supprimer ' + quoi + ' ?\n\nCette action est IRRÉVERSIBLE.')) return;
+  try {
+    const r = await api('/api/projets/' + projet.id, { method: 'DELETE' });
+    // Si on CONSULTAIT ce projet, la vue n'a plus de sens : on revient à
+    // l'actif, sinon les tableaux resteraient vides sans qu'on sache pourquoi.
+    if (projetVue === projet.id) memoriseProjetVue(null);
+    _projetNote(r.message, 'ok');
+    await rendProjet();
+  } catch (err) {
+    _projetNote('Suppression refusée : ' + err.message, 'avert');
+  }
 }
 
 async function rendProjet() {
@@ -1532,9 +1586,9 @@ async function rendProjet() {
 
   for (const p of data.projets) corps.appendChild(_carte(p, p.actif));
 
-  const nom = data.actif ? data.actif.nom : 'aucun';
-  const bouton = $('projet-courant');
-  if (bouton) bouton.textContent = nom;
+  // Le titre et la pastille de droite suivent : la modale vient peut-être de
+  // créer, renommer, supprimer ou changer ce qui est surveillé.
+  majNomProjet();
 }
 
 function rendNouveau() {
@@ -1698,7 +1752,7 @@ async function traiteExtrait(fichier) {
       throw new Error(detail);
     }
     const data = await r.json();
-    afficheClasses(data.classes.map((c) => c.nom));
+    afficheClasses(data.classes);
     _projetNote('Extrait de ' + data.duree_s + ' s analysé. Décoche les classes '
       + 'qui ne conviennent pas.', 'ok');
   } catch (err) {
@@ -1731,11 +1785,11 @@ async function proposeClasses(terme) {
   afficheClasses(data.classes);
 }
 
-function afficheClasses(noms) {
+function afficheClasses(items) {
   const zone = refsNouveau.classes;
   if (!zone) return;
   zone.textContent = '';
-  if (!noms || !noms.length) return;
+  if (!items || !items.length) return;
 
   const p = document.createElement('p');
   p.className = 'card-sub';
@@ -1744,18 +1798,28 @@ function afficheClasses(noms) {
 
   const liste = document.createElement('div');
   liste.className = 'projet-classes';
-  for (const c of noms) {
+  for (const c of items) {
     const lab = document.createElement('label');
     lab.className = 'projet-classe';
     const cb = document.createElement('input');
     cb.type = 'checkbox';
-    cb.value = c;
+    // La VALEUR est le nom du modèle : c'est lui qui part en base, et c'est lui
+    // que YAMNet résoudra au chargement. Le français n'est qu'un affichage.
+    cb.value = c.nom;
     cb.checked = true;
     cb.dataset.classe = '1';
     const s = document.createElement('span');
-    s.textContent = c;
+    s.textContent = c.nom;
     lab.appendChild(cb);
     lab.appendChild(s);
+    if (c.fr && c.fr !== c.nom) {
+      // Le français À CÔTÉ du nom anglais : on ne peut pas demander de décocher
+      // ce qu'on ne comprend pas.
+      const trad = document.createElement('em');
+      trad.className = 'projet-classe-fr';
+      trad.textContent = '— ' + c.fr;
+      lab.appendChild(trad);
+    }
     liste.appendChild(lab);
   }
   zone.appendChild(liste);
@@ -1794,10 +1858,11 @@ async function creeProjet(nom) {
 
 function voirProjet(projet) {
   memoriseProjetVue(projet.id);
-  _projetNote('Tu consultes « ' + projet.nom + ' ». La capture continue de '
-    + 'surveiller l\'autre projet — rien n\'est interrompu.', 'ok');
   $('projet').close();
-  // Tout recharge sur le nouveau projet consulté.
+  // ⚠️ Le TITRE doit suivre. Il ne se mettait à jour qu'au chargement de la
+  // page : après un « Voir », il annonçait encore l'ancien projet — donc
+  // l'en-tête mentait sur ce que les tableaux montraient.
+  majNomProjet();
   chargeSamples();
   chargeCaptures();
   chargeQC();
@@ -1816,31 +1881,36 @@ async function activeProjet(projet) {
   }
 }
 
+// Le titre montre le projet CONSULTÉ, la pastille de droite celui que la
+// capture SURVEILLE. Les deux sont distincts : on peut relire un ancien relevé
+// sans interrompre la campagne en cours, et confondre les deux ferait conclure
+// que « la nuit a été calme » alors qu'on lit une autre campagne.
 async function majNomProjet() {
-  const el = $('projet-courant');
-  if (!el) return;
+  const consulteEl = $('projet-consulte');
+  const surveilleEl = $('projet-surveille');
   try {
     const d = await api('/api/projets');
     const consulte = projetVue == null
-      ? null
-      : (d.projets || []).find((p) => p.id === projetVue);
-    const vu = consulte || d.actif;
-    el.textContent = (vu && vu.nom) || 'aucun projet';
+      ? d.actif
+      : (d.projets || []).find((p) => p.id === projetVue) || d.actif;
 
-    // ⚠️ Consulter un projet qui n'est PAS celui que la capture surveille doit
-    // se voir. Sans ça, on lit un ancien relevé en croyant regarder la campagne
-    // en cours — et « la nuit a été calme » serait faux.
-    const enConsultation = consulte && d.actif && consulte.id !== d.actif.id;
-    const bouton = $('btn-projet');
-    if (bouton) {
-      bouton.classList.toggle('titre-projet--consulte', !!enConsultation);
-      bouton.title = enConsultation
-        ? 'Tu consultes « ' + consulte.nom + ' ». La capture surveille « '
-          + d.actif.nom + ' ». Cliquer pour changer.'
-        : 'Changer de projet';
+    if (consulteEl) {
+      consulteEl.textContent = (consulte && consulte.nom) || 'aucun projet';
+      const autre = !!(d.actif && consulte && consulte.id !== d.actif.id);
+      // Le mot « (consultation) » est ajouté par le CSS : l'état est écrit, pas
+      // seulement coloré.
+      consulteEl.classList.toggle('consulte', autre);
+    }
+    if (surveilleEl) {
+      surveilleEl.textContent = d.actif
+        ? d.actif.nom
+        : 'aucun projet surveillé';
+      surveilleEl.title = d.actif
+        ? 'La capture surveille « ' + d.actif.nom + ' »'
+        : 'Aucun projet actif : la capture ne surveille rien';
     }
   } catch (err) {
-    el.textContent = 'projets illisibles';
+    if (consulteEl) consulteEl.textContent = 'projets illisibles';
   }
 }
 
