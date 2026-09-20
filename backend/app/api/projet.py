@@ -16,17 +16,29 @@ redémarrage** — l'`Interpreter` LiteRT n'est pas thread-safe. L'API le dit da
 sa réponse plutôt que de laisser croire à une bascule immédiate.
 """
 
+import asyncio
+import json
 import logging
+import tempfile
+import urllib.error
+import urllib.request
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+import numpy as np
+from fastapi import APIRouter, Body, HTTPException, Request
 from pydantic import BaseModel
 
 from .. import dictionnaire, projet
+from ..audio.resample import resample_to_16k
+from ..audio.wav import read_wav_float32
 from ..classifier.yamnet_litert import NOISY_CLASS_NAMES, load_class_names
 from ..config import settings
 
 log = logging.getLogger(__name__)
+
+# Un extrait de quelques secondes suffit, et on refuse au-delà : le corps passe
+# par la mémoire du conteneur, et personne n'a besoin d'envoyer un album.
+TAILLE_MAX_OCTETS = 8 * 1024 * 1024
 
 router = APIRouter(prefix="/api/projets", tags=["projets"])
 
@@ -71,6 +83,125 @@ async def proposer(terme: str) -> dict[str, Any]:
         # dictionnaire : la meilleure proposition est prête à être proposée.
         "classes": propositions[0]["classes"] if propositions else [],
     }
+
+
+def _extrait_local(classifier, corps: bytes) -> dict[str, Any]:
+    """YAMNet sur un court extrait, et les classes qui se sont manifestées.
+
+    Bloquant (écriture disque + inférence) : à appeler via `asyncio.to_thread`.
+
+    ⚠️ On rend le **MAX sur les fenêtres** pour chaque classe, pas la moyenne.
+    Une classe qui se manifeste une demi-seconde dans un extrait de trois
+    secondes est une moyenne basse mais un maximum franc — et c'est ce moment-là
+    qui compte. C'est la même règle que le score principal.
+    """
+    if len(corps) > TAILLE_MAX_OCTETS:
+        raise HTTPException(413, "extrait trop volumineux (8 Mo au maximum)")
+    if not corps:
+        raise HTTPException(400, "extrait vide")
+
+    with tempfile.NamedTemporaryFile(suffix=".wav") as f:
+        f.write(corps)
+        f.flush()
+        try:
+            x, sr = read_wav_float32(f.name)
+        except Exception as exc:  # noqa: BLE001
+            # Message utile plutôt que 500 : le navigateur peut n'avoir envoyé
+            # qu'un en-tête, ou un format que le serveur ne décode pas.
+            raise HTTPException(
+                400,
+                f"WAV illisible ({exc}) — le serveur n'accepte que du PCM "
+                "(pas de MP3) ; la conversion se fait dans le navigateur",
+            ) from exc
+
+    x16 = resample_to_16k(x, sr)
+    # Une fenêtre fait 15 600 échantillons : en dessous, le modèle complète par
+    # des zéros et noterait surtout du silence.
+    if x16.size < 15600:
+        raise HTTPException(
+            400, "extrait trop court : il faut au moins une seconde de son"
+        )
+
+    matrice = classifier.score_matrix(x16)
+    noms = load_class_names(settings.class_map_path)
+    par_classe = matrice.max(axis=0)
+    order = np.argsort(par_classe)[::-1][:12]
+    return {
+        "classes": [
+            {
+                "nom": noms[int(i)],
+                "index": int(i),
+                "score": round(float(par_classe[int(i)]), 4),
+            }
+            for i in order
+        ],
+        "duree_s": round(x16.size / 16000, 2),
+        "windows": int(matrice.shape[0]),
+    }
+
+
+def _relais_extrait(corps: bytes) -> dict[str, Any]:
+    """Demande l'analyse au processus capture, qui porte le modèle.
+
+    Même idiome que `ondemand._relais_vers_capture` : l'admin sert la page mais
+    n'a pas YAMNet, donc il relaie plutôt que de dupliquer le modèle.
+    """
+    base = settings.capture_url.rstrip("/")
+    if not base:
+        raise HTTPException(
+            503,
+            "aucun classifieur ici, et CAPTURE_URL n'est pas défini pour le relayer",
+        )
+    req = urllib.request.Request(
+        base + "/api/projets/extrait",
+        data=corps,
+        method="POST",
+        headers={
+            "Content-Type": "application/octet-stream",
+            "Accept": "application/json",
+            "User-Agent": "noisygram/admin",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=settings.analyze_remote_timeout_s) as rep:
+            return json.loads(rep.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        # On relaie le code ET le message : un 400 « WAV illisible » de capture
+        # doit se lire comme un 400 ici, pas comme une panne de l'admin.
+        #
+        # ⚠️ Le corps d'erreur de capture est lui-même du JSON FastAPI
+        # (`{"detail": …}`). Sans le déballer, l'interface afficherait du JSON
+        # échappé à l'intérieur de JSON — illisible au moment précis où le
+        # message doit aider.
+        brut = exc.read().decode("utf-8", "replace")[:500]
+        try:
+            detail = json.loads(brut).get("detail", brut)
+        except (ValueError, AttributeError):
+            detail = brut
+        raise HTTPException(exc.code, detail) from exc
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(503, f"capture injoignable : {exc}") from exc
+
+
+@router.post("/extrait")
+async def extrait(
+    request: Request,
+    corps: bytes = Body(..., media_type="application/octet-stream"),
+) -> dict[str, Any]:
+    """Les classes YAMNet qui répondent sur un court extrait de son.
+
+    C'est la TROISIÈME voie de la modale : « voici le son que je veux compter ».
+    Elle n'oblige pas l'utilisateur à connaître le vocabulaire du modèle — il
+    enregistre dix secondes, et on lui rend les classes qui s'y manifestent.
+
+    Le corps est du **WAV PCM**. Le MP3 est décodé dans le NAVIGATEUR avant
+    l'envoi : le serveur n'embarque aucun décodeur, par choix (350 Mo de ffmpeg
+    évités), et cette décision ne se revoit pas ici.
+    """
+    classifier = getattr(request.app.state, "classifier", None)
+    if classifier is None or not classifier.is_ready():
+        return await asyncio.to_thread(_relais_extrait, corps)
+    return await asyncio.to_thread(_extrait_local, classifier, corps)
 
 
 @router.post("")

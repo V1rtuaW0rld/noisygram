@@ -221,6 +221,11 @@ app = FastAPI(
 # Le WebSocket du poste de terrain, ET le vrai /ws/listen : rôle capture.
 if settings.sert_capture:
     app.include_router(ws_routes.router)
+    # Le routeur projet est monté AUSSI ici, et c'est nécessaire : l'admin sert
+    # la modale mais n'a pas le modèle. `/api/projets/extrait` y relaie vers ce
+    # processus, qui est le seul à pouvoir faire tourner YAMNet. Même idiome que
+    # le panneau des samples, monté des deux côtés pour la même raison.
+    app.include_router(projet_api.router)
 
 # L'API REST du dashboard : rôle admin uniquement.
 if settings.sert_admin:

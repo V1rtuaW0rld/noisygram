@@ -873,6 +873,25 @@ dialog#projet .modale-pied button {
   cursor: pointer;
 }
 
+/* Zone de dépôt : un trait INTERROMPU et un texte explicite, parce que rien
+   n'indique qu'une zone est cliquable tant qu'on ne l'a pas survolée. */
+.projet-depot {
+  padding: 16px 12px;
+  border: 2px dashed var(--border);
+  border-radius: 10px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.projet-depot:hover,
+.projet-depot.survol {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+}
+
 /* Le message de pied dit l'état en toutes lettres ; la couleur le souligne. */
 #projet-note.ok {
   color: var(--accent);

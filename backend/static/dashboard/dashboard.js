@@ -1679,6 +1679,33 @@ async function interroge() {
     chercher.addEventListener('click', () => proposeClasses(refsNouveau.terme.value));
     corps.appendChild(chercher);
 
+    // --- Deuxième voie : donner un extrait du son -------------------------
+    const ou = document.createElement('p');
+    ou.className = 'card-sub';
+    ou.textContent = 'Ou donne un court extrait du son :';
+    corps.appendChild(ou);
+
+    const depot = document.createElement('div');
+    depot.className = 'projet-depot';
+    depot.textContent = 'Dépose un WAV ou un MP3 ici, ou clique pour choisir';
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'audio/wav,audio/mpeg,.wav,.mp3';
+    input.hidden = true;
+    depot.addEventListener('click', () => input.click());
+    depot.addEventListener('dragover', (ev) => { ev.preventDefault(); depot.classList.add('survol'); });
+    depot.addEventListener('dragleave', () => depot.classList.remove('survol'));
+    depot.addEventListener('drop', (ev) => {
+      ev.preventDefault();
+      depot.classList.remove('survol');
+      if (ev.dataTransfer.files.length) traiteExtrait(ev.dataTransfer.files[0]);
+    });
+    input.addEventListener('change', () => {
+      if (input.files.length) traiteExtrait(input.files[0]);
+    });
+    corps.appendChild(depot);
+    corps.appendChild(input);
+
     const zone = document.createElement('div');
     zone.className = 'projet-classes-zone';
     corps.appendChild(zone);
@@ -1694,6 +1721,114 @@ async function interroge() {
 
     $('projet-nouveau').hidden = true;
     $('projet-retour').hidden = false;
+  }
+
+  function encodeWav(float32, sr) {
+    const n = float32.length;
+    const buf = new ArrayBuffer(44 + n * 2);
+    const v = new DataView(buf);
+    const texte = (off, s) => { for (let i = 0; i < s.length; i++) v.setUint8(off + i, s.charCodeAt(i)); };
+    texte(0, 'RIFF');
+    v.setUint32(4, 36 + n * 2, true);
+    texte(8, 'WAVE');
+    texte(12, 'fmt ');
+    v.setUint32(16, 16, true);
+    v.setUint16(20, 1, true);          // PCM
+    v.setUint16(22, 1, true);          // mono
+    v.setUint32(24, sr, true);
+    v.setUint32(28, sr * 2, true);
+    v.setUint16(32, 2, true);
+    v.setUint16(34, 16, true);
+    texte(36, 'data');
+    v.setUint32(40, n * 2, true);
+    for (let i = 0; i < n; i++) {
+      const s = Math.max(-1, Math.min(1, float32[i]));
+      v.setInt16(44 + i * 2, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+    }
+    return buf;
+  }
+
+  async function versWav(file) {
+    const buf = await file.arrayBuffer();
+    if (/\.wav$/i.test(file.name) || /wav/i.test(file.type || '')) return buf;
+
+    // ⚠️ Sinon on décode ICI, dans le navigateur : le serveur n'embarque aucun
+    // décodeur MP3, par choix délibéré (350 Mo de ffmpeg évités). Le navigateur,
+    // lui, décode nativement.
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    if (!Ctx) throw new Error('ce navigateur ne sait pas décoder ce format');
+    const ctx = new Ctx();
+    try {
+      const audio = await ctx.decodeAudioData(buf);
+      const n = audio.length;
+      const mono = new Float32Array(n);
+      for (let c = 0; c < audio.numberOfChannels; c++) {
+        const d = audio.getChannelData(c);
+        for (let i = 0; i < n; i++) mono[i] += d[i] / audio.numberOfChannels;
+      }
+      return encodeWav(mono, audio.sampleRate);
+    } finally {
+      if (ctx.close) ctx.close();
+    }
+  }
+
+  async function traiteExtrait(fichier) {
+    const zone = refsNouveau.classes;
+    if (!zone) return;
+    noteProjet('');
+    zone.textContent = 'Lecture du fichier…';
+    let wav;
+    try { wav = await versWav(fichier); }
+    catch (err) { zone.textContent = ''; noteProjet('Fichier illisible : ' + err.message, 'avert'); return; }
+
+    zone.textContent = 'Analyse par le modèle…';
+    try {
+      const r = await fetch(avecProjet('/api/projets/extrait'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/octet-stream' },
+        body: wav,
+      });
+      if (!r.ok) {
+        let detail = 'HTTP ' + r.status;
+        try { const c = await r.json(); if (c && c.detail) detail = c.detail; } catch (e) { /* non-JSON */ }
+        throw new Error(detail);
+      }
+      const data = await r.json();
+      afficheClasses(data.classes.map((c) => c.nom));
+      noteProjet('Extrait de ' + data.duree_s + ' s analysé. Décoche les classes '
+        + 'qui ne conviennent pas.', 'ok');
+    } catch (err) {
+      zone.textContent = '';
+      noteProjet('Analyse impossible : ' + err.message, 'avert');
+    }
+  }
+
+  function afficheClasses(noms) {
+    const zone = refsNouveau.classes;
+    if (!zone) return;
+    zone.textContent = '';
+    if (!noms || !noms.length) return;
+    const p = document.createElement('p');
+    p.className = 'card-sub';
+    p.textContent = 'Décoche les classes qui ne conviennent pas :';
+    zone.appendChild(p);
+    const liste = document.createElement('div');
+    liste.className = 'projet-classes';
+    for (const c of noms) {
+      const lab = document.createElement('label');
+      lab.className = 'projet-classe';
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.value = c;
+      cb.checked = true;
+      cb.dataset.classe = '1';
+      const s = document.createElement('span');
+      s.textContent = c;
+      lab.appendChild(cb);
+      lab.appendChild(s);
+      liste.appendChild(lab);
+    }
+    zone.appendChild(liste);
   }
 
   async function proposeClasses(terme) {
@@ -1714,28 +1849,9 @@ async function interroge() {
       zone.appendChild(p);
       return;
     }
-    const p = document.createElement('p');
-    p.className = 'card-sub';
-    p.textContent = 'Décoche les classes qui ne conviennent pas :';
-    zone.appendChild(p);
-
-    const liste = document.createElement('div');
-    liste.className = 'projet-classes';
-    for (const c of data.classes) {
-      const lab = document.createElement('label');
-      lab.className = 'projet-classe';
-      const cb = document.createElement('input');
-      cb.type = 'checkbox';
-      cb.value = c;
-      cb.checked = true;
-      cb.dataset.classe = '1';
-      const s = document.createElement('span');
-      s.textContent = c;
-      lab.appendChild(cb);
-      lab.appendChild(s);
-      liste.appendChild(lab);
-    }
-    zone.appendChild(liste);
+    // Les deux voies aboutissent ICI : nommer et uploader produisent toutes les
+    // deux une liste de classes, et c'est la même liste à cocher qui les rend.
+    afficheClasses(data.classes);
   }
 
   async function creeProjet(nom) {
