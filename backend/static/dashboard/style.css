@@ -997,14 +997,17 @@ dialog#projet .modale-pied button.btn-primary {
   font-size: 13px;
 }
 
-/* Le projet SURVEILLÉ, à droite près du voyant. Distinct du consulté, et
-   affiché à part exprès : on veut le voir d'un coup d'œil, pas le déduire. */
-.surveille {
-  font-size: 12px;
-  color: var(--ink-2);
-  white-space: nowrap;
-  padding: 2px 10px;
-  border: 1px solid var(--border);
-  border-radius: 999px;
+/* Le projet SURVEILLÉ, dans la même pastille que l'état de connexion :
+   « en direct : aboiement ». Le séparateur n'apparaît que s'il y a un nom à
+   séparer — au premier rendu, avant la réponse de l'API, le span est vide et
+   la pastille affiche seulement « connexion… ».
+   L'espace après le deux-points vient du `gap` de `.direct` ; il ne faut donc
+   pas le remettre dans le contenu, sous peine de le voir en double. */
+#projet-surveille:not(:empty)::before {
+  content: ': ';
+}
+
+#projet-surveille:empty {
+  display: none;
 }
 

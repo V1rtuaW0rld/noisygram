@@ -14,7 +14,7 @@
     } catch (e) {}
   })();
 </script>
-<link rel="stylesheet" href="style.css?v=28">
+<link rel="stylesheet" href="style.css?v=29">
 </head>
 <body>
 
@@ -45,14 +45,13 @@
     <button type="button" id="btn-qc" class="nav-item">🎯 Quality Center</button>
   </nav>
   <div class="header-right">
-    <!-- Le projet que la capture SURVEILLE. Distinct du projet consulté, et
-         affiché à part exprès : on peut relire d'anciens relevés sans que la
-         campagne en cours s'interrompe, et il faut pouvoir le voir d'un coup
-         d'œil au lieu de le déduire. -->
-    <span class="surveille" id="projet-surveille" title="Projet surveillé par la capture">…</span>
     <span class="direct" id="lien" data-etat="attente" role="status" aria-live="polite">
       <span class="direct-dot" aria-hidden="true"></span>
       <span id="lien-texte">déconnecté</span>
+      <!-- Le projet SURVEILLÉ, dans la MÊME pastille que l'état :
+           « en direct : aboiement ». Il se lit donc d'un bloc, au lieu d'être
+           un élément séparé qu'il faudrait rapprocher mentalement. -->
+      <span id="projet-surveille" title="Projet surveille par la capture"></span>
     </span>
     <button id="theme" type="button" class="btn-theme" title="Passer au mode sombre" aria-label="Passer au mode sombre">
       <svg class="icon-theme icon-sun" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="#e5a50a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
