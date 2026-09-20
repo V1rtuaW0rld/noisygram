@@ -34,6 +34,7 @@ from .classifier.yamnet_litert import NOISY_CLASS_NAMES
 from .config import settings
 from .logging_setup import setup_logging
 from .storage import media, ondemand
+from .surveillance import Surveillance
 from .ws import proxy as ws_proxy
 from .ws import routes as ws_routes
 from .ws.hub import ListenHub
@@ -160,20 +161,20 @@ async def lifespan(app: FastAPI):
     # ~95 Mo. C'est la moitié de l'intérêt du découpage — un blocage ou un
     # plantage d'inférence côté capture ne peut plus emporter le dashboard.
     classifier = None
-    # Nom du projet surveillé, annoncé au poste de terrain dans le `hello_ack`.
-    # Le client ne fait AUCUN `fetch` : tout lui arrive par le WebSocket, et
-    # c'est justement ce que cette capture surveille qu'il doit afficher — pas
-    # ce qu'un autre écran consulterait.
-    app.state.projet_nom = None
+    # Ce que cette capture surveille, et comment elle suit un changement de
+    # projet SANS redémarrer : le groupe surveillé n'est pas gravé dans le
+    # modèle, c'est une sélection de colonnes dans ses sorties (voir
+    # app/surveillance.py). Reste None pour le rôle admin, qui ne classe rien.
+    app.state.surveillance = None
     if settings.charge_classifieur:
         # Le groupe ET le seuil viennent du PROJET ACTIF. `garantir_projet` crée
         # le projet initial s'il n'y en a pas, remplit les seuils non calibrés
         # et rattache les données antérieures — c'est ce qui rend la migration 9
         # sans effet visible.
         #
-        # ⚠️ Le groupe est figé ICI, au démarrage. En changer demande de
-        # redémarrer la capture : l'Interpreter LiteRT n'est pas thread-safe, on
-        # ne le reconstruit donc pas à chaud.
+        # C'est le SEUL endroit qui répare la base. Le suivi à chaud, lui, ne
+        # fait que relire : un projet activé pendant que la capture tourne est
+        # appliqué, jamais créé ni réparé.
         projet_actif = await projet.garantir_projet(
             NOISY_CLASS_NAMES, settings.noisy_threshold
         )
@@ -185,7 +186,11 @@ async def lifespan(app: FastAPI):
         )
         classifier = build_classifier(settings, classes_cibles, seuil)
         classifier.load()
-        app.state.projet_nom = projet_actif["nom"] if projet_actif else None
+        # `poser` mémorise ce qui vient d'être construit : sans ça, le premier
+        # `suivre()` croirait à un changement et annoncerait au poste une
+        # bascule qui n'a pas eu lieu.
+        app.state.surveillance = Surveillance(classifier, app.state.hub)
+        app.state.surveillance.poser(projet_actif)
         log.info(
             "projet « %s » → %s, seuil %.2f",
             projet_actif["nom"] if projet_actif else "(aucun, défaut appliqué)",

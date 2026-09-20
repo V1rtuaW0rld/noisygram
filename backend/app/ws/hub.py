@@ -142,6 +142,17 @@ class ListenHub:
     def unregister_field(self, session: Any) -> None:
         self._fields.discard(session)
 
+    def postes(self) -> list[Any]:
+        """Les postes de terrain HANDSHAKÉS, en copie.
+
+        Copie et non vue : les sessions s'inscrivent et se désinscrivent
+        pendant qu'on itère, et un `set` modifié en cours de boucle lève — au
+        milieu d'une diffusion, donc après n'avoir prévenu que la moitié des
+        postes. Le filtre est celui de `resolve_field` : un client qui n'a pas
+        encore fait son `hello` n'est pas un poste.
+        """
+        return [s for s in set(self._fields) if getattr(s, "handshaked", False)]
+
     def resolve_field(self, client_id: str | None = None) -> tuple[Any | None, str | None]:
         """Le poste à écouter, ou la raison de ne pas savoir lequel.
 

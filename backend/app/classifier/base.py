@@ -83,5 +83,25 @@ class ClassifierBackend(abc.ABC):
     def describe(self) -> dict:
         """Métadonnées annoncées dans hello_ack."""
 
+    def reconfigurer(self, classes_cibles: list[str], seuil: float) -> None:
+        """Change le groupe surveillé et le seuil, SANS recharger le modèle.
+
+        Un projet qui change n'est plus un redémarrage : le groupe surveillé
+        n'est pas gravé dans le modèle, c'est une sélection parmi ses sorties.
+        Changer de projet, c'est donc réécrire deux attributs — pas rappeler
+        `load()`.
+
+        Peut lever si le groupe demandé ne correspond pas à ce modèle. Dans ce
+        cas l'appelant garde l'ancien groupe : appliquer à moitié donnerait une
+        capture qui compte autre chose que ce qu'elle croit compter.
+
+        ⚠️ Appelé pendant que `classify()` tourne dans un autre thread. Une
+        implémentation qui dérive des indices doit les publier ATOMIQUEMENT
+        (un seul rebind d'attribut), jamais les vider puis les remplir : une
+        fenêtre où le groupe est vide ferait juger un segment par personne.
+        """
+        self.classes_cibles = tuple(classes_cibles)
+        self.threshold = seuil
+
     def close(self) -> None:
         return None

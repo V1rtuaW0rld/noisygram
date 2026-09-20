@@ -1628,27 +1628,29 @@ n'est pas en train d'enregistrer.
 
 ### 19.2 Ce que la capture annonce au poste — `hello_ack.projet`
 
-Le client ne fait **aucun `fetch`** : tout lui arrive par le WebSocket. Le nom vient donc
-du `hello_ack`, et c'est bien ce qu'on veut — c'est le processus capture qui répond, donc
-le nom décrit **la capture à laquelle on est connecté**, pas ce qu'un autre onglet
-consulterait.
-
-Le chemin, quatre fichiers :
+Le nom vient du `hello_ack`, et c'est bien ce qu'on veut — c'est le processus capture qui
+répond, donc le nom décrit **la capture à laquelle on est connecté**, pas ce qu'un autre
+onglet consulterait.
 
 | | |
 |---|---|
-| `main.py` | `app.state.projet_nom = projet_actif["nom"]`, posé **au démarrage**, dans le `if settings.charge_classifieur` — le rôle admin n'a pas de projet actif à annoncer |
-| `ws/routes.py` | le lit avec `getattr(app.state, "projet_nom", None)` : les outils de test montent l'application **sans passer par le lifespan**, et un `AttributeError` à la connexion serait un piège gratuit |
 | `ws/protocol.py` | `hello_ack(..., projet_nom=None)` → champ `projet`, **nullable** |
-| `client/app.js` | `$('projet-courant').textContent = msg.projet \|\| 'projet inconnu'`, plus `document.title` |
+| `client/app.js` | `afficherProjet(msg.projet)` → `#projet-courant` et `document.title` |
+| `ws/session.py` | la source du nom a changé au §20 — lire **§20.2**, pas ce tableau |
 
-Le groupe de classes reste figé au démarrage : **changer de projet demande de redémarrer la
-capture**, puisque l'`Interpreter` LiteRT n'est pas thread-safe. Le nom affiché suit donc
-exactement ce que la capture classe réellement — ce n'est pas une décoration.
+Le titre est resté à `…` jusqu'à la connexion à ce moment-là, et vaut `projet inconnu` si
+le champ est nul.
 
-Le titre reste à `…` jusqu'à la connexion, et vaut `projet inconnu` si le champ est nul.
-**Afficher un nom d'avance serait le deviner** : le poste n'a aucun moyen de savoir avant
-que la capture le lui dise.
+> ⚠️ **Ce paragraphe affirmait deux choses fausses, corrigées au §20.** Il disait que le
+> client ne fait « aucun `fetch` » — vrai alors, faux depuis (§20.4) — et surtout que
+> **changer de projet demande de redémarrer la capture**. C'était faux : le groupe
+> surveillé n'est pas gravé dans le modèle, c'est une sélection de colonnes dans les
+> sorties de YAMNet. Cette phrase a fait redémarrer des captures pour rien, et sans le
+> redémarrage la capture classait le mauvais son **en silence** — le pire des deux cas.
+> L'origine de l'erreur : avant la migration 9, le groupe était une constante de module
+> (`NOISY_CLASS_NAMES`), et il fallait effectivement recharger le classifieur pour en
+> changer. Quand il est devenu une donnée du projet, la contrainte est tombée sans que la
+> phrase qui la décrivait soit relue.
 
 ### 19.3 Le projet entre DANS la pastille d'état (`8442947`)
 
@@ -1688,3 +1690,118 @@ nom de variable d'une page à l'autre : vérifier dans le fichier.
 
 **Toujours pas vu dans un navigateur.**
 
+---
+
+## 20. Le projet surveillé se suit à chaud (20/09/2026)
+
+### 20.1 Le symptôme, et ce qu'il cachait
+
+Le dashboard disait que la capture surveillait **Klaxon**. Le poste de terrain affichait
+**Aboiements**. La base leur donnait raison à tous les deux :
+
+```
+ id |    nom     | actif | seuil |                classes
+----+------------+-------+-------+--------------------------------------------
+  1 | Aboiements | f     |  0.25 | ["Dog","Bark","Yip","Howl",…]
+  7 | Klaxon     | t     |  0.25 | ["Vehicle horn, car horn, honking"]
+```
+
+Klaxon était bien le projet actif. **La capture comptait des aboiements.** Elle avait été
+démarrée quand Aboiements l'était, et rien ne l'avait jamais fait changer d'avis : le
+projet n'était relu qu'une fois, dans le `lifespan`.
+
+Trois défauts distincts, tous silencieux :
+
+1. le groupe de classes était figé au démarrage ;
+2. le nom affiché l'était donc aussi ;
+3. le poste n'apprenait le nom qu'en cliquant Démarrer (le WebSocket ne s'ouvre qu'à
+   `start()`), et rien ne redescendait jamais du serveur vers lui en cours de route.
+
+### 20.2 Le groupe surveillé n'est pas dans le modèle
+
+**C'est la mesure qui a changé le diagnostic.** Dans `classifier/yamnet_litert.py`, le
+groupe n'est pas une propriété du `.tflite` : c'est `_noisy_indices`, une liste d'indices de
+colonnes dans les 521 sorties de YAMNet, plus `threshold`, un flottant. Les 521 sorties sont
+calculées à chaque fenêtre de toute façon ; le groupe n'est qu'une **sélection** dedans. Le
+verrou `_lock` protège l'`Interpreter` (`set_tensor`/`invoke`), pas la sélection.
+
+Changer de projet, c'est donc réécrire une liste d'entiers. Coût nul, aucun rechargement,
+aucun problème de concurrence — **un redémarrage de la capture n'a jamais été nécessaire**,
+et le §19.2 qui l'affirmait a été corrigé.
+
+Le groupe est publié dans **un seul attribut** (`_groupe`, un tuple), et `classify()` le
+fige en tête d'appel : `reconfigurer()` s'exécute sur la boucle d'événements pendant que
+l'inférence tourne dans un thread. Publier les indices puis l'index de diagnostic en deux
+gestes laisserait une fenêtre où un segment serait jugé avec le groupe de l'un et le
+diagnostic de l'autre — et rien dans le résultat ne le montrerait.
+
+### 20.3 `app/surveillance.py` — suivre, sans tâche de fond
+
+`Surveillance` (une instance sur `app.state`) retient **ce que cette capture applique** et
+sait la faire basculer. `suivre()` est idempotent : il relit `projet.actif()`, compare
+`(id, nom, classes, seuil)` **par contenu** — pas par `updated_at`, qui cesserait de marcher
+le jour où une écriture oublierait de la poser — et ne fait rien le plus souvent.
+
+Il est appelé à **chaque `hello` et à chaque `ping`**, et c'est tout : le projet n'a
+**aucune tâche de fond**, et ce n'est pas un oubli. Sans poste connecté il n'y a pas d'audio
+à classer, donc rien à resynchroniser. La connexion d'un poste est précisément le moment où
+le groupe compte, et elle resynchronise toujours. Le ping, lui, bat toutes les 15 s
+(`CONFIG.pingMs`) : c'est ce qui fait qu'un changement est suivi en 15 s au plus sur une
+capture en cours d'écoute.
+
+Trois pièges traités :
+
+| Piège | Traitement |
+|---|---|
+| `projet.actif()` rend `None` **aussi quand la base est injoignable** (il avale l'exception) | ne rien faire sur `None`. Le traduire en « plus de projet » viderait le groupe à la première hoquet et la capture cesserait de compter en silence |
+| Le projet demandé n'a **aucune classe connue du modèle** | on garde l'ancien groupe, on journalise, et le **refus est mémorisé** — sinon le même avertissement partirait toutes les 15 s et l'opérateur cesserait de le lire |
+| Plusieurs postes pinguent en même temps | un `asyncio.Lock` sérialise ; sinon deux `suivre()` liraient le même ancien état et pousseraient deux fois le même changement |
+
+`_on_hello` appelle `suivre()` **avant** de marquer la session `handshaked` : la diffusion
+va aux postes, et un client qui n'a pas encore reçu son `hello_ack` n'en est pas un — il
+recevrait sinon « le projet a changé » juste avant l'annonce de ce projet, et redémarrerait
+le micro qu'il vient d'ouvrir.
+
+### 20.4 Le poste de terrain
+
+| | |
+|---|---|
+| `projet_change` | nouveau message serveur → poste. Une page restée en cache ne casse pas : la chaîne `if (msg.type === …)` de `handleServerMessage` n'a **aucun `else`**, donc un type inconnu tombe sans bruit |
+| Au chargement | `GET /api/projets/courant`, parce que le WebSocket ne s'ouvre qu'à Démarrer. **Première requête HTTP du JS de cette page** — le « le client ne fait AUCUN `fetch` » du §19.2 cesse d'être vrai, et le commentaire a été corrigé |
+| Sur la bascule | titre mis à jour, ligne au journal, puis `restartAudio()` — tout, micro compris. Un épisode à cheval sur deux groupes serait jugé moitié par l'un, moitié par l'autre |
+| Sur un refus | **rien ne redémarre**, et le titre ne bouge pas : côté serveur le groupe n'a pas changé, donc afficher le nom refusé serait exactement le mensonge que ce message existe pour éviter |
+
+`restartAudio()` termine aussi l'écoute directe (`app.js:404`) : après une bascule, la page
+d'écoute s'arrête et doit être relancée. C'est le comportement demandé.
+
+`GET /api/projets/courant` **applique** le projet au lieu de se contenter de répondre :
+ouvrir la page du poste resynchronise donc la capture, avant même Démarrer.
+
+### 20.5 Ce que l'API disait, et ne dit plus
+
+`POST /api/projets/{id}/activer` renvoyait `redemarrage_requis: True` et le message
+« docker compose restart capture ». Les deux sont partis, ainsi que le `confirm()` du
+dashboard qui les répétait. Une API qui décrit une contrainte qui n'existe plus fait
+exécuter des gestes inutiles — et, ici, en cache un autre : ne pas redémarrer laissait la
+capture sur le mauvais groupe **sans que rien ne le dise**.
+
+### 20.6 Reste ouvert
+
+- **Le seuil de Klaxon (0,25) n'est pas calibré pour un klaxon** — il descend du réglage
+  global, et l'API le dit déjà (`api/projet.py:242`). Il profitera du même chemin : le
+  seuil fait partie de la comparaison de `suivre()`.
+- **Le poste ne sait pas qu'une bascule a eu lieu pendant qu'il était arrêté** : il
+  l'apprend en rouvrant la page, ou à sa prochaine connexion. C'est suffisant — sans poste,
+  il n'y a rien à juger — mais ça veut dire qu'un `export/` peut contenir des épisodes
+  jugés sous deux groupes différents. La colonne `model_version` ne les distingue pas.
+
+### 20.7 Vérifications
+
+| | |
+|---|---|
+| `static-wiring.test.js` | **87** vérifications, toutes OK (79 avant). Les nouvelles vérifient que la branche `projet_change` existe, qu'elle redémarre la capture audio, qu'un refus est traité **avant** toute mise à jour du titre, et que l'URL demandée par le poste correspond à la route réellement déclarée côté Python |
+| `worklet.test.js` | 54 vérifications, toutes OK |
+| `node --check` | `app.js` et `dashboard.js` OK |
+| `?v=` | client : `app.js` → **19**. Dashboard : `dashboard.js` → **28** |
+
+**Toujours pas vu dans un navigateur au moment d'écrire ces lignes.**

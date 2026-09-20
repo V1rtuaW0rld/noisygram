@@ -142,13 +142,16 @@ class ConnectionSession:
         settings: Settings,
         classifier,
         hub: ListenHub | None = None,
-        projet_nom: str | None = None,
+        surveillance=None,
     ) -> None:
         self.ws = ws
         self.settings = settings
         self.classifier = classifier
-        # Ce que cette capture surveille, annoncé au poste dans le hello_ack.
-        self.projet_nom = projet_nom
+        # Ce que cette capture surveille, et comment elle suit un changement.
+        # Peut être None : les outils de test montent l'application sans passer
+        # par le lifespan. Le poste n'apprend alors aucun nom de projet — il
+        # affiche « projet inconnu » — au lieu de refuser de se connecter.
+        self.surveillance = surveillance
         # Le registre partagé entre sessions. Peut être None (outils de test) :
         # tout le chemin d'écoute est alors simplement inerte, ce qui vaut mieux
         # que d'obliger chaque appelant à en construire un.
@@ -313,6 +316,13 @@ class ConnectionSession:
         elif kind == P.T_LISTEN_END:
             await self._on_listen_end(payload)
         elif kind == P.T_PING:
+            # Le ping est le seul battement régulier du poste (toutes les 15 s,
+            # `CONFIG.pingMs`). C'est lui qui fait qu'un changement de projet est
+            # suivi sans redémarrer la capture, et sans tâche de fond ici : quand
+            # plus aucun poste ne parle, il n'y a plus d'audio à classer, donc
+            # rien à resynchroniser.
+            if self.surveillance is not None:
+                await self.surveillance.suivre()
             await self._send(P.pong(payload.get("t")))
         else:
             await self._fail(P.ERR_UNKNOWN_TYPE, f"type inconnu : {kind!r}")
@@ -333,6 +343,14 @@ class ConnectionSession:
             )
             return
 
+        # Le projet actif est relu AVANT de répondre, et AVANT de marquer la
+        # session comme « poste » : `suivre()` diffuse aux postes connectés, et
+        # un client qui n'a pas encore reçu son `hello_ack` n'en est pas un — il
+        # recevrait sinon « le projet a changé » juste avant l'annonce de ce
+        # projet, et redémarrerait le micro qu'il vient d'ouvrir.
+        if self.surveillance is not None:
+            await self.surveillance.suivre()
+
         self.client_id = hello.client_id
         self.client_version = hello.app_version
         self.handshaked = True
@@ -350,7 +368,7 @@ class ConnectionSession:
                 session_id=self.session_id,
                 server_version=s.server_version,
                 client_id=hello.client_id,
-                projet_nom=self.projet_nom,
+                projet_nom=self.surveillance.nom if self.surveillance else None,
                 classifier_info=self.classifier.describe(),
                 limits={
                     "max_segment_bytes": s.max_segment_bytes,
@@ -1883,6 +1901,16 @@ class ConnectionSession:
             log.exception("écriture du refus %s", relpath)
 
     # ------------------------------------------------------------ sortant
+
+    async def notifier(self, message: dict) -> None:
+        """Pousse un message de contrôle venu d'AILLEURS que de cette session.
+
+        Le suivi du projet s'en sert pour annoncer une bascule au poste. Il
+        passe par `_send`, qui porte le verrou d'écriture : la notification
+        arrive pendant qu'une tâche de segment peut répondre, et deux
+        `send_json` entrelacés corrompraient la trame.
+        """
+        await self._send(message)
 
     async def _send(self, message: dict) -> None:
         # Verrou : plusieurs tâches de segment peuvent répondre en parallèle.

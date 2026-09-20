@@ -993,6 +993,46 @@ function flushQueue() {
   updateCounters();
 }
 
+// ------------------------------------------------------------------ projet
+
+// Le titre dit ce que CETTE capture surveille — c'est le seul écran qu'on a
+// sous les yeux quand on est dehors à alimenter. Trois sources le renseignent,
+// dans cet ordre : la requête au chargement (avant même Démarrer), le
+// `hello_ack` à la connexion, et `projet_change` quand le serveur bascule en
+// cours de route.
+function afficherProjet(nom) {
+  const el = $('projet-courant');
+  if (!el) return;
+  el.textContent = nom || 'projet inconnu';
+  document.title = nom ? 'Noisygram — ' + nom : 'Noisygram';
+}
+
+function projetAffiche() {
+  const el = $('projet-courant');
+  return el ? el.textContent : '?';
+}
+
+// Le WebSocket ne s'ouvre qu'à Démarrer (`connect()` sort si `!running`), donc
+// sans cette requête le titre resterait vide jusqu'au clic. Même origine, même
+// port : la page est servie par la capture elle-même.
+//
+// Elle n'est pas que décorative : côté capture, c'est cette route qui relit le
+// projet actif et l'applique. Ouvrir la page resynchronise donc la
+// surveillance, avant même qu'on clique sur quoi que ce soit.
+async function chargerProjet() {
+  try {
+    const r = await fetch('/api/projets/courant', {
+      headers: { Accept: 'application/json' },
+    });
+    if (!r.ok) return;
+    const d = await r.json();
+    if (d.projet) afficherProjet(d.projet);
+  } catch (err) {
+    // Le titre reste « … ». Ce n'est pas une raison pour empêcher d'écouter —
+    // et le hello_ack le renseignera de toute façon.
+  }
+}
+
 // ---------------------------------------------------------------- WebSocket
 
 function connect() {
@@ -1064,11 +1104,7 @@ function handleServerMessage(msg) {
     // devant lequel on se trouve quand on alimente : sans ça, on ne sait pas
     // ce qu'on compte. Il vient du hello_ack, donc c'est bien ce qui tourne
     // ici — pas ce qu'un autre onglet consulte.
-    const titreProjet = $('projet-courant');
-    if (titreProjet) {
-      titreProjet.textContent = msg.projet || 'projet inconnu';
-      document.title = msg.projet ? 'Noisygram — ' + msg.projet : 'Noisygram';
-    }
+    afficherProjet(msg.projet);
     log('serveur ' + msg.server_version + ' — projet « ' + (msg.projet || '?')
         + ' » — seuil ' + c.threshold);
     // Les seuils du client se règlent SANS redéploiement : c'est ce qui évite
@@ -1157,6 +1193,34 @@ function handleServerMessage(msg) {
     // Une réponse = un segment terminé = une place libre. C'est ce qui cadence
     // la vidange de la file ; sans ça, elle resterait bloquée à deux segments.
     flushQueue();
+    return;
+  }
+
+  if (msg.type === 'projet_change') {
+    // La capture change de projet surveillé et le dit, au lieu de laisser le
+    // poste envoyer des segments qui seraient jugés avec un groupe dont il
+    // ignore tout. Rien dans l'audio ne le lui apprendrait : seul ce message
+    // peut le faire.
+    if (msg.applique === false) {
+      // Rien n'a bougé côté capture. Le titre continue donc de dire ce qui est
+      // RÉELLEMENT compté, et le refus part au journal : afficher le nom refusé
+      // ferait croire à une bascule qui n'a pas eu lieu — exactement ce que ce
+      // message existe pour empêcher.
+      log('projet « ' + (msg.projet || '?') + ' » REFUSÉ : '
+          + (msg.raison || 'raison inconnue') + ' — la capture continue de '
+          + 'compter « ' + projetAffiche() + ' »', 'error');
+      return;
+    }
+    afficherProjet(msg.projet);
+    log('projet surveillé : « ' + (msg.projet || '?')
+        + ' » — redémarrage de la capture audio', 'warn');
+    // Tout redémarrer, micro compris : le groupe et le seuil avec lesquels nos
+    // segments seront jugés viennent de changer, et un épisode à cheval sur les
+    // deux serait jugé moitié par l'un, moitié par l'autre. `restartAudio` clôt
+    // l'épisode et l'écoute en vol AVANT de rouvrir le graphe, et il porte son
+    // propre verrou : l'appeler sans l'attendre est sûr, et le handler de
+    // message peut rester synchrone.
+    if (state.running) restartAudio();
     return;
   }
 
@@ -1545,6 +1609,10 @@ function initTheme() {
   // Un poste extérieur qu'on rouvre après une coupure doit repartir seul.
   // Sans ça, la boîte reste muette jusqu'à ce que quelqu'un aille cliquer.
   log('prêt — cliquez sur Démarrer');
+
+  // Le projet surveillé, pendant que le reste se met en place. Volontairement
+  // sans `await` : la page doit être utilisable même si cette requête traîne.
+  chargerProjet();
 })();
 
 window.addEventListener('beforeunload', () => {

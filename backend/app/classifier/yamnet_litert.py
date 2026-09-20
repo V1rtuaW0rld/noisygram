@@ -131,9 +131,15 @@ class YamnetLitertBackend(ClassifierBackend):
         self._input_shape: tuple[int, ...] = ()
         self._output_index: int | None = None
         self._names: list[str] = []
-        self._bark_index: int | None = None
-        self._noisy_index: int | None = None
-        self._noisy_indices: list[int] = []
+        # Le groupe surveillé tient dans UN SEUL attribut, et c'est délibéré :
+        # `classify()` tourne dans le pool de threads pendant que
+        # `reconfigurer()` s'exécute sur la boucle d'événements. Publier
+        # « les indices » puis « l'index Bark » en deux gestes laisserait une
+        # fenêtre où un segment serait jugé avec le groupe de l'un et le
+        # diagnostic de l'autre. Un tuple se rebinde d'un coup.
+        #
+        # (indices surveillés, index Bark — diagnostic, index Dog — diagnostic)
+        self._groupe: tuple[tuple[int, ...], int | None, int | None] = ((), None, None)
         self._model_version: str | None = None
 
         # L'Interpreter LiteRT n'est PAS thread-safe : un seul thread à la
@@ -141,6 +147,83 @@ class YamnetLitertBackend(ClassifierBackend):
         # d'événements pendant les ~30 ms d'inférence (§5.3).
         self._lock = threading.Lock()
         self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="yamnet")
+
+    # ---------------------------------------------------- groupe surveillé
+
+    def _index_de(self, nom: str) -> int | None:
+        """L'indice d'une classe, ou None si ce class map ne la connaît pas."""
+        try:
+            return self._names.index(nom)
+        except ValueError:
+            return None
+
+    def _resoudre_groupe(
+        self, classes_cibles: tuple[str, ...]
+    ) -> tuple[tuple[int, ...], int | None, int | None]:
+        """Traduit un groupe de noms en indices du class map.
+
+        Rend `(indices surveillés, index Bark, index Dog)`. Les deux derniers
+        ne servent qu'au diagnostic, et valent `None` quand le projet ne
+        surveille pas les chiens — la colonne reste alors vide plutôt que
+        d'écrire un 0, qui se lirait comme « Bark a répondu zéro ».
+
+        Les noms sont résolus PAR NOM, jamais codés en dur (§3.2) : l'index 0
+        est « Speech », pas « Animal », et une supposition ici décalerait tout.
+        Bark et Dog ne sont plus EXIGÉS — ils l'ont été, et leur absence
+        refusait le démarrage, ce qui faisait de la cible canine une condition
+        de démarrage et non une donnée.
+
+        Lève si AUCUNE classe du groupe n'existe dans ce class map. Le service
+        classerait alors tout à zéro et refuserait chaque épisode — une panne
+        qui ressemble à « le poste n'envoie rien », c'est-à-dire à l'inverse
+        de sa cause.
+        """
+        if not [n for n in classes_cibles if n in self._names]:
+            raise ValueError(
+                "aucune des classes surveillées n'existe dans ce class map : "
+                f"{list(classes_cibles)} — le projet configuré ne "
+                "correspond pas à ce modèle"
+            )
+        indices: list[int] = []
+        for name in classes_cibles:
+            try:
+                indices.append(self._names.index(name))
+            except ValueError:
+                log.warning(
+                    "classe surveillée absente du class map : %r — ignorée "
+                    "(la détection se poursuit sur les autres)",
+                    name,
+                )
+        return (tuple(indices), self._index_de("Bark"), self._index_de("Dog"))
+
+    def reconfigurer(self, classes_cibles: list[str], seuil: float) -> None:
+        """Échange le groupe surveillé sans recharger le modèle.
+
+        Aucun `Interpreter` n'est touché, et ce n'est pas une optimisation :
+        les 521 sorties de YAMNet sont déjà calculées à chaque fenêtre, et le
+        groupe n'est qu'une SÉLECTION de colonnes dedans. Le verrou protège
+        l'inférence, pas la sélection. Changer de projet coûte donc une
+        résolution de noms, pas un chargement de modèle — et c'est pour ça
+        qu'un redémarrage de la capture n'a jamais été nécessaire.
+
+        Résolution D'ABORD, publication ensuite : si elle lève, rien n'a
+        bougé et la capture continue de compter ce qu'elle comptait.
+        """
+        if self._interpreter is None:
+            raise RuntimeError("modèle non chargé — appeler load()")
+
+        groupe = tuple(classes_cibles)
+        nouveau = self._resoudre_groupe(groupe)
+        # Un seul rebind : voir le commentaire de `_groupe`.
+        self._groupe = nouveau
+        self.classes_cibles = groupe
+        self.threshold = seuil
+        log.info(
+            "groupe surveillé changé : %s → indices %s, seuil %.2f",
+            list(groupe),
+            list(nouveau[0]),
+            seuil,
+        )
 
     # ---------------------------------------------------------------- load
 
@@ -196,40 +279,11 @@ class YamnetLitertBackend(ClassifierBackend):
                 tuple(int(d) for d in out_details["shape"]),
             )
 
-            # Résolus PAR NOM, jamais codés en dur (§3.2). L'index 0 est
-            # « Speech », pas « Animal » : une supposition ici décalerait tout.
-            #
-            # ⚠️ Bark et Dog ne sont plus EXIGÉS. Ils l'étaient, et leur absence
-            # faisait refuser le démarrage : la cible canine était donc une
-            # condition de démarrage, pas seulement une constante. Ils ne sont
-            # désormais résolus que comme diagnostic, quand le projet les
-            # surveille.
-            for nom, attribut in (("Bark", "_bark_index"), ("Dog", "_noisy_index")):
-                try:
-                    setattr(self, attribut, self._names.index(nom))
-                except ValueError:
-                    setattr(self, attribut, None)
-
-            # La SEULE condition qui reste : le projet doit surveiller au moins
-            # une classe que ce modèle sait nommer. Sinon le service classerait
-            # tout à zéro et refuserait chaque épisode — une panne qui
-            # ressemble à « le poste n'envoie rien ».
-            if not [n for n in self.classes_cibles if n in self._names]:
-                raise ValueError(
-                    "aucune des classes surveillées n'existe dans ce class map : "
-                    f"{list(self.classes_cibles)} — le projet configuré ne "
-                    "correspond pas à ce modèle"
-                )
-
-            for name in self.classes_cibles:
-                try:
-                    self._noisy_indices.append(self._names.index(name))
-                except ValueError:
-                    log.warning(
-                        "classe surveillée absente du class map : %r — ignorée "
-                        "(la détection se poursuit sur les autres)",
-                        name,
-                    )
+            # Le groupe est résolu par la MÊME fonction qu'un changement de
+            # projet à chaud. Deux chemins qui appliqueraient deux règles
+            # finiraient par diverger, et un projet refusé au démarrage
+            # passerait à chaud sans que rien ne le dise.
+            self._groupe = self._resoudre_groupe(self.classes_cibles)
 
             # Diagnostic : ces deux indices sont des faits du modèle YAMNet, et
             # n'ont de sens que si le projet surveille les chiens. Un écart
@@ -270,6 +324,21 @@ class YamnetLitertBackend(ClassifierBackend):
 
     def is_ready(self) -> bool:
         return self._interpreter is not None
+
+    # Le groupe se lit par `_groupe`, d'un seul accès. Ces trois vues
+    # n'existent que pour la lisibilité des appelants — les écrire
+    # séparément les rendrait de nouveau publiables en deux temps.
+    @property
+    def _noisy_indices(self) -> tuple[int, ...]:
+        return self._groupe[0]
+
+    @property
+    def _bark_index(self) -> int | None:
+        return self._groupe[1]
+
+    @property
+    def _noisy_index(self) -> int | None:
+        return self._groupe[2]
 
     @property
     def bark_index(self) -> int:
@@ -340,6 +409,12 @@ class YamnetLitertBackend(ClassifierBackend):
         if self._interpreter is None:
             raise RuntimeError("modèle non chargé — appeler load()")
 
+        # Le groupe est figé POUR TOUT L'APPEL. `reconfigurer()` peut publier un
+        # autre projet pendant les ~30 ms d'inférence ; un segment jugé moitié
+        # sous l'ancien groupe et moitié sous le nouveau ne décrirait ni l'un ni
+        # l'autre, et personne ne pourrait le voir dans le résultat.
+        indices, bark_index, _ = self._groupe
+
         t0 = time.perf_counter()
         x = np.asarray(x_16k, dtype=np.float32).reshape(-1)
         if x.size == 0:
@@ -363,7 +438,7 @@ class YamnetLitertBackend(ClassifierBackend):
 
         # MAX sur les fenêtres ET sur le groupe surveillé. C'est le score
         # principal, celui sur lequel porte le seuil.
-        noisy_per_window = scores[:, self._noisy_indices].max(axis=1)
+        noisy_per_window = scores[:, indices].max(axis=1)
         best_window = int(np.argmax(noisy_per_window))
 
         noisy = float(noisy_per_window.max())
@@ -374,11 +449,7 @@ class YamnetLitertBackend(ClassifierBackend):
         # Optionnelle : un projet qui ne surveille pas les chiens n'a pas de
         # diagnostic Bark. On rend None — la colonne reste vide plutôt que
         # d'écrire un 0, qui se lirait comme « Bark a répondu zéro ».
-        bark = (
-            float(scores[:, self._bark_index].max())
-            if self._bark_index is not None
-            else None
-        )
+        bark = float(scores[:, bark_index].max()) if bark_index is not None else None
         mean_noisy = float(noisy_per_window.mean())
 
         # Le top-K est celui de la fenêtre qui a produit le score retenu : une

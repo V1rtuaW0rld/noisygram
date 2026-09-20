@@ -519,7 +519,8 @@ function periodeFichier() {
 //
 // ⚠️ VOIR n'est pas SURVEILLER. Le projet consulté voyage en paramètre de
 // requête : le serveur filtre dessus, et rien ne change à ce que la capture
-// surveille. L'activer, lui, demande un redémarrage.
+// surveille. L'activer, lui, change ce qui est compté — et tout de suite : la
+// capture relit le projet à chaque ping du poste, sans redémarrage.
 let projetVue = (() => {
   try {
     const v = window.localStorage.getItem('noisygram.projetVue');
@@ -1970,8 +1971,8 @@ async function interroge() {
 
   async function activeProjet(projet) {
     if (!confirm('Faire surveiller « ' + projet.nom + ' » par la capture ?\n\n'
-      + 'La capture devra être REDÉMARRÉE pour en tenir compte '
-      + '(docker compose restart capture).')) return;
+      + 'Le poste de terrain sera prévenu et redémarrera sa capture audio. '
+      + 'Aucun redémarrage de service n\'est nécessaire.')) return;
     try {
       const r = await api('/api/projets/' + projet.id + '/activer', { method: 'POST' });
       noteProjet(r.message, 'ok');

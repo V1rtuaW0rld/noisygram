@@ -11,9 +11,15 @@ noms de classes YAMNet :
   remplira ensuite par « + Réf ».
 
 ⚠️ **Voir et surveiller sont deux gestes distincts.** Consulter un projet est
-instantané ; l'*activer* change ce que la capture surveille et **exige un
-redémarrage** — l'`Interpreter` LiteRT n'est pas thread-safe. L'API le dit dans
-sa réponse plutôt que de laisser croire à une bascule immédiate.
+instantané et ne change rien à ce qui est compté ; l'*activer* change le groupe
+de classes que la capture surveille.
+
+Les deux sont immédiats. L'`Interpreter` LiteRT n'est pas thread-safe, mais le
+groupe surveillé n'est PAS gravé dedans : c'est une sélection de colonnes dans
+ses sorties, plus un seuil. L'échanger ne demande donc aucun rechargement, et
+la capture suit d'elle-même au prochain `hello` ou au prochain ping du poste de
+terrain — au plus 15 s (voir `app/surveillance.py`). Cette API a annoncé le
+contraire pendant un temps, et a fait redémarrer des captures pour rien.
 """
 
 import asyncio
@@ -251,17 +257,16 @@ async def creer(payload: ProjetCree) -> dict[str, Any]:
 
 @router.post("/{projet_id}/activer")
 async def activer(projet_id: int) -> dict[str, Any]:
-    """Rend ce projet actif — ce que la CAPTURE surveillera après redémarrage."""
+    """Rend ce projet actif — la capture le suivra d'elle-même."""
     actif = await projet.activer(projet_id)
     if actif is None:
         raise HTTPException(404, f"projet {projet_id} introuvable")
     return {
         "actif": actif,
-        "redemarrage_requis": True,
         "message": (
-            f"« {actif['nom']} » est maintenant le projet actif. "
-            "La capture doit être redémarrée pour le surveiller : "
-            "docker compose restart capture"
+            f"« {actif['nom']} » est maintenant le projet actif. La capture le "
+            "suit sans redémarrage : au prochain ping du poste de terrain "
+            "(15 s au plus), ou dès sa prochaine connexion."
         ),
     }
 
@@ -270,6 +275,41 @@ async def activer(projet_id: int) -> dict[str, Any]:
 async def defaut() -> dict[str, Any]:
     """Le groupe appliqué quand aucun projet n'est configuré."""
     return {"classes": list(NOISY_CLASS_NAMES)}
+
+
+@router.get("/courant")
+async def courant(request: Request) -> dict[str, Any]:
+    """Ce que la CAPTURE surveille en ce moment.
+
+    Demandé par la page du poste de terrain au chargement de la page : le titre
+    doit dire ce qu'on alimente avant même qu'on clique sur Démarrer, et le
+    WebSocket ne s'ouvre qu'à ce moment-là.
+
+    ⚠️ Cet appel **relit le projet actif et l'applique** au lieu de se contenter
+    de répondre. Ouvrir la page resynchronise donc la capture — c'est voulu :
+    c'est le geste le moins cher pour rattraper un changement qu'aucun ping n'a
+    encore vu, et il ne fait rien quand il n'y a rien à faire.
+    """
+    surveillance = getattr(request.app.state, "surveillance", None)
+    if surveillance is None:
+        # Rôle admin : aucun classifieur ici, donc rien à appliquer. On dit
+        # quand même ce que la base porte — mais c'est la capture qui fait foi,
+        # et cette page-là n'est servie que par elle.
+        actif = await projet.actif()
+        return {
+            "projet": actif["nom"] if actif else None,
+            "classes": actif["classes"] if actif else [],
+            "seuil": actif["seuil"] if actif else None,
+            "applique_ici": False,
+        }
+    await surveillance.suivre()
+    applique = surveillance.applique
+    return {
+        "projet": surveillance.nom,
+        "classes": applique["classes"] if applique else [],
+        "seuil": applique["seuil"] if applique else None,
+        "applique_ici": applique is not None,
+    }
 
 
 @router.patch("/{projet_id}")

@@ -47,12 +47,13 @@ async def audio_socket(websocket: WebSocket) -> None:
     # Le classifieur vit sur app.state, posé au démarrage : on ne le reconstruit
     # jamais par connexion, il porte un Interpreter de 4 Mo et un verrou.
     classifier = websocket.app.state.classifier
-    # Le nom du projet surveillé, posé au démarrage : le poste de terrain doit
-    # savoir ce qu'il alimente. `getattr` parce que les outils de test montent
-    # l'application sans passer par le lifespan.
-    projet_nom = getattr(websocket.app.state, "projet_nom", None)
+    # Ce que cette capture surveille, et comment elle suit un changement. Posé
+    # au démarrage. `getattr` parce que les outils de test montent l'application
+    # sans passer par le lifespan : la session se contente alors de ne rien
+    # savoir du projet, au lieu de refuser de démarrer.
+    surveillance = getattr(websocket.app.state, "surveillance", None)
     session = ConnectionSession(
-        websocket, settings, classifier, _hub(websocket), projet_nom=projet_nom
+        websocket, settings, classifier, _hub(websocket), surveillance=surveillance
     )
     try:
         await session.run()

@@ -39,6 +39,10 @@ T_STREAM_PROGRESS = "stream_progress"
 T_STREAM_STOP = "stream_stop"
 T_ERROR = "error"
 T_PONG = "pong"
+# Le projet surveillé a changé. Poussé au poste SANS qu'il l'ait demandé : le
+# groupe de classes avec lequel ses segments seront jugés vient de basculer, et
+# il est le seul à pouvoir en tenir compte côté terrain.
+T_PROJET_CHANGE = "projet_change"
 T_LISTEN_REQUEST = "listen_request"
 T_LISTEN_STOP = "listen_stop"
 
@@ -204,6 +208,32 @@ def segment_result(
 
 def pong(t: int | None) -> dict[str, Any]:
     return {"type": T_PONG, "t": t, "server_time_ms": now_ms()}
+
+
+def projet_change(
+    *,
+    projet: str | None,
+    classes: list[str],
+    seuil: float | None,
+    applique: bool,
+    raison: str | None = None,
+) -> dict[str, Any]:
+    """Le projet surveillé a changé — la capture le dit au poste de terrain.
+
+    `applique=False` n'est PAS une information accessoire : c'est un refus, et
+    le poste doit le montrer. Un projet activé dont aucune classe n'existe dans
+    le modèle laisserait la capture à compter l'ancien groupe ; sans ce champ,
+    le poste afficherait le nouveau nom et l'opérateur croirait que c'est fait.
+    """
+    return {
+        "type": T_PROJET_CHANGE,
+        "projet": projet,
+        "classes": list(classes),
+        "seuil": seuil,
+        "applique": applique,
+        "raison": raison,
+        "server_time_ms": now_ms(),
+    }
 
 
 def stream_ack(

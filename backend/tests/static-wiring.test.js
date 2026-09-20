@@ -327,6 +327,52 @@ console.log('\n■ Page de capture');
   check('le lien vers le dashboard est une URL absolue',
     /<a href="https:\/\/[^"]+\/dashboard\/"[^>]*>Dashboard/.test(html),
     (html.match(/<a href="[^"]*"[^>]*>Dashboard/) || ['introuvable'])[0]);
+
+  // --- suivi du projet surveillé ---------------------------------------------
+  // Le titre dit ce que CETTE capture surveille. Trois sources le renseignent,
+  // et aucune n'est redondante : la requête au chargement, parce que le
+  // WebSocket ne s'ouvre qu'à Démarrer ; le `hello_ack` à la connexion ; et
+  // `projet_change` quand la capture bascule pendant qu'on écoute.
+  check('le titre du projet existe dans le HTML', presents.has('projet-courant'));
+  check('le nom est demandé dès le chargement',
+    /fetch\('\/api\/projets\/courant'/.test(js));
+
+  // L'URL demandée doit correspondre à une route RÉELLEMENT déclarée. Un
+  // préfixe changé d'un côté seulement rendrait un 404 que la page avale
+  // (l'échec est silencieux, exprès) : le titre resterait à « … » pour
+  // toujours, et personne ne saurait pourquoi.
+  const apiProjet = lire(path.join(__dirname, '..', 'app', 'api', 'projet.py'));
+  const prefixeApi = (apiProjet.match(/APIRouter\(prefix="([^"]+)"/) || [])[1];
+  const urlDemandee = (js.match(/fetch\('([^']*\/courant)'/) || [])[1];
+  check("l'URL demandée correspond à la route déclarée",
+    !!prefixeApi && urlDemandee === prefixeApi + '/courant',
+    `${urlDemandee} vs ${prefixeApi}/courant`);
+
+  // La bascule de projet, poussée par le serveur. On isole la branche : sans
+  // ça, un `restartAudio()` trouvé ailleurs dans le fichier ferait passer la
+  // vérification alors que rien ne le déclenche ici.
+  // `indexOf` rend -1 quand la branche a disparu, et `slice(-1, n)` rendrait
+  // alors UN caractère — donc `length > 0` passerait sur un fichier où la
+  // branche n'existe plus. C'est le genre de vérification qui ne vérifie rien.
+  const iBascule = js.indexOf("msg.type === 'projet_change'");
+  const iApres = js.indexOf("msg.type === 'pong'");
+  const bascule = iBascule !== -1 && iApres > iBascule ? js.slice(iBascule, iApres) : '';
+  check('la bascule de projet est traitée', bascule.length > 0);
+  check('la bascule met le titre à jour', /afficherProjet\(msg\.projet\)/.test(bascule));
+  // Le groupe et le seuil avec lesquels nos segments seront jugés viennent de
+  // changer : un épisode à cheval sur les deux serait jugé moitié par l'un,
+  // moitié par l'autre.
+  check('la bascule redémarre la capture audio', /restartAudio\(\)/.test(bascule));
+  // Mais un projet REFUSÉ ne redémarre RIEN : côté serveur le groupe n'a pas
+  // bougé, et couper le micro pour ça ferait perdre un épisode pour rien. Le
+  // refus doit être traité AVANT toute mise à jour du titre — sinon le poste
+  // afficherait un projet que la capture ne surveille pas.
+  const iRefus = bascule.indexOf('applique === false');
+  const iTitre = bascule.indexOf('afficherProjet(msg.projet)');
+  check('un projet refusé est traité avant toute mise à jour du titre',
+    iRefus !== -1 && iTitre !== -1 && iRefus < iTitre);
+  check('un projet refusé ne redémarre pas la capture',
+    /applique === false[\s\S]*?return;/.test(bascule));
 }
 
 // ---------------------------------------------------------------- dashboard
